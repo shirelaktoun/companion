@@ -1,0 +1,36 @@
+[Unit]
+Description=AI Companion PBX Agent
+Documentation=https://github.com/your-repo/ai-companion
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=companion
+Group=companion
+WorkingDirectory=/opt/ai-companion
+Environment="NODE_ENV=production"
+EnvironmentFile=/opt/ai-companion/.env
+ExecStart=/usr/bin/node /opt/ai-companion/dist/index.js
+Restart=on-failure
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ai-companion
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/ai-companion /opt/ai-companion/audio-cache
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target

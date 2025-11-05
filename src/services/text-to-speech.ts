@@ -1,0 +1,244 @@
+import textToSpeech from '@google-cloud/text-to-speech';
+import OpenAI from 'openai';
+import { Logger } from 'winston';
+import fs from 'fs';
+import path from 'path';
+import util from 'util';
+import { v4 as uuidv4 } from 'uuid';
+import axios from 'axios';
+
+export type TTSProvider = 'google' | 'openai';
+
+/**
+ * Text-to-Speech service supporting multiple providers
+ */
+export class TextToSpeechService {
+  private googleClient: textToSpeech.TextToSpeechClient | null = null;
+  private openaiClient: OpenAI | null = null;
+  private provider: TTSProvider;
+  private logger: Logger;
+  private voiceName: string;
+  private languageCode: string;
+  private audioDir: string;
+
+  constructor(
+    provider: TTSProvider,
+    config: {
+      googleCredentials?: string;
+      openaiApiKey?: string;
+      voiceName?: string;
+      languageCode?: string;
+    },
+    logger: Logger
+  ) {
+    this.logger = logger;
+    this.provider = provider;
+    this.voiceName = config.voiceName || 'en-US-Neural2-J';
+    this.languageCode = config.languageCode || 'en-US';
+    this.audioDir = path.join(process.cwd(), 'audio-cache');
+
+    // Ensure audio directory exists
+    if (!fs.existsSync(this.audioDir)) {
+      fs.mkdirSync(this.audioDir, { recursive: true });
+    }
+
+    // Initialize the selected provider
+    if (provider === 'google') {
+      this.initializeGoogleTTS(config.googleCredentials);
+    } else if (provider === 'openai') {
+      this.initializeOpenAITTS(config.openaiApiKey);
+    }
+  }
+
+  /**
+   * Initialize Google Cloud TTS
+   */
+  private initializeGoogleTTS(credentialsPath?: string): void {
+    if (!credentialsPath) {
+      this.logger.warn('No Google Cloud credentials provided');
+      return;
+    }
+
+    try {
+      this.googleClient = new textToSpeech.TextToSpeechClient({
+        keyFilename: credentialsPath
+      });
+      this.logger.info('Google Cloud TTS service initialized');
+    } catch (error) {
+      this.logger.error('Failed to initialize Google Cloud TTS:', error);
+    }
+  }
+
+  /**
+   * Initialize OpenAI TTS
+   */
+  private initializeOpenAITTS(apiKey?: string): void {
+    if (!apiKey) {
+      this.logger.warn('No OpenAI API key provided');
+      return;
+    }
+
+    try {
+      this.openaiClient = new OpenAI({ apiKey });
+      this.logger.info('OpenAI TTS service initialized');
+    } catch (error) {
+      this.logger.error('Failed to initialize OpenAI TTS:', error);
+    }
+  }
+
+  /**
+   * Convert text to speech and save as audio file
+   */
+  async synthesize(text: string, channelId?: string): Promise<string> {
+    this.logger.debug(`Synthesizing text with ${this.provider}: ${text.substring(0, 50)}...`);
+
+    if (this.provider === 'google') {
+      return this.synthesizeWithGoogle(text, channelId);
+    } else if (this.provider === 'openai') {
+      return this.synthesizeWithOpenAI(text, channelId);
+    }
+
+    throw new Error(`Unsupported TTS provider: ${this.provider}`);
+  }
+
+  /**
+   * Synthesize with Google Cloud TTS
+   */
+  private async synthesizeWithGoogle(text: string, channelId?: string): Promise<string> {
+    if (!this.googleClient) {
+      throw new Error('Google TTS client not initialized');
+    }
+
+    try {
+      const request = {
+        input: { text },
+        voice: {
+          languageCode: this.languageCode,
+          name: this.voiceName,
+          ssmlGender: 'NEUTRAL' as const
+        },
+        audioConfig: {
+          audioEncoding: 'LINEAR16' as const,
+          sampleRateHertz: 8000, // Phone quality
+          speakingRate: 1.0,
+          pitch: 0.0
+        }
+      };
+
+      const [response] = await this.googleClient.synthesizeSpeech(request);
+
+      if (!response.audioContent) {
+        throw new Error('No audio content received from Google TTS');
+      }
+
+      const filename = `tts_google_${channelId || 'unknown'}_${uuidv4()}.wav`;
+      const filePath = path.join(this.audioDir, filename);
+
+      await util.promisify(fs.writeFile)(filePath, response.audioContent, 'binary');
+
+      this.logger.debug(`Google TTS audio saved to ${filePath}`);
+      return filePath;
+
+    } catch (error) {
+      this.logger.error('Error with Google TTS:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Synthesize with OpenAI TTS
+   */
+  private async synthesizeWithOpenAI(text: string, channelId?: string): Promise<string> {
+    if (!this.openaiClient) {
+      throw new Error('OpenAI TTS client not initialized');
+    }
+
+    try {
+      // OpenAI TTS voices: alloy, echo, fable, onyx, nova, shimmer
+      // Map our voice name to OpenAI voices, or use 'nova' as default (warm, friendly)
+      const openaiVoice = this.voiceName.toLowerCase().includes('female') ? 'nova' :
+                         this.voiceName.toLowerCase().includes('male') ? 'onyx' : 'nova';
+
+      const mp3Response = await this.openaiClient.audio.speech.create({
+        model: 'tts-1-hd', // High quality model
+        voice: openaiVoice as any,
+        input: text,
+        response_format: 'opus' // Opus is efficient for telephony
+      });
+
+      const buffer = Buffer.from(await mp3Response.arrayBuffer());
+
+      const filename = `tts_openai_${channelId || 'unknown'}_${uuidv4()}.opus`;
+      const filePath = path.join(this.audioDir, filename);
+
+      await util.promisify(fs.writeFile)(filePath, buffer);
+
+      this.logger.debug(`OpenAI TTS audio saved to ${filePath}`);
+      return filePath;
+
+    } catch (error) {
+      this.logger.error('Error with OpenAI TTS:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Clean up old audio files
+   */
+  async cleanupOldFiles(maxAgeMinutes: number = 60): Promise<void> {
+    try {
+      const files = await util.promisify(fs.readdir)(this.audioDir);
+      const now = Date.now();
+      const maxAge = maxAgeMinutes * 60 * 1000;
+
+      let deletedCount = 0;
+
+      for (const file of files) {
+        const filePath = path.join(this.audioDir, file);
+        const stats = await util.promisify(fs.stat)(filePath);
+
+        if (now - stats.mtimeMs > maxAge) {
+          await util.promisify(fs.unlink)(filePath);
+          deletedCount++;
+        }
+      }
+
+      if (deletedCount > 0) {
+        this.logger.info(`Cleaned up ${deletedCount} old TTS audio files`);
+      }
+    } catch (error) {
+      this.logger.error('Error cleaning up old audio files:', error);
+    }
+  }
+
+  /**
+   * Delete a specific audio file
+   */
+  async deleteFile(filePath: string): Promise<void> {
+    try {
+      if (fs.existsSync(filePath)) {
+        await util.promisify(fs.unlink)(filePath);
+        this.logger.debug(`Deleted audio file: ${filePath}`);
+      }
+    } catch (error) {
+      this.logger.error(`Error deleting audio file ${filePath}:`, error);
+    }
+  }
+
+  /**
+   * Convert audio file to Asterisk-compatible format
+   * Returns the path to the converted file
+   */
+  async convertToAsteriskFormat(inputPath: string): Promise<string> {
+    // For now, we're already generating in LINEAR16 at 8000Hz which is compatible
+    // If needed, we can add sox or ffmpeg conversion here
+    return inputPath;
+  }
+
+  /**
+   * Get audio directory
+   */
+  getAudioDirectory(): string {
+    return this.audioDir;
+  }
+}
