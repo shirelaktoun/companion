@@ -11,6 +11,10 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# Get the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+SOURCE_DIR="$( cd "$SCRIPT_DIR/.." && pwd )"
+
 # Installation directory
 INSTALL_DIR="/opt/ai-companion"
 LOG_DIR="/var/log/ai-companion"
@@ -71,12 +75,15 @@ mkdir -p "$INSTALL_DIR/audio-cache"
 echo
 echo "Step 3: Copying application files..."
 
-# Copy application files
-cp -r package.json tsconfig.json src "$INSTALL_DIR/"
+# Copy application files from source directory
+cp -r "$SOURCE_DIR/package.json" "$SOURCE_DIR/tsconfig.json" "$SOURCE_DIR/src" "$INSTALL_DIR/"
+
+# Copy deployment files
+cp -r "$SOURCE_DIR/deployment" "$INSTALL_DIR/"
 
 # Copy environment template if .env doesn't exist
 if [ ! -f "$INSTALL_DIR/.env" ]; then
-  cp .env.example "$INSTALL_DIR/.env"
+  cp "$SOURCE_DIR/.env.example" "$INSTALL_DIR/.env"
   echo -e "${YELLOW}Created .env file. Please edit $INSTALL_DIR/.env with your configuration${NC}"
 else
   echo ".env file already exists, not overwriting"
@@ -97,7 +104,7 @@ sudo -u companion npm run build
 
 echo
 echo "Step 6: Installing systemd service..."
-cp deployment/ai-companion.service "$SERVICE_FILE"
+cp "$INSTALL_DIR/deployment/ai-companion.service" "$SERVICE_FILE"
 systemctl daemon-reload
 
 echo
