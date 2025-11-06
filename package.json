@@ -23,7 +23,7 @@
     "@anthropic-ai/sdk": "^0.30.0",
     "@deepgram/sdk": "^3.7.0",
     "@google-cloud/text-to-speech": "^5.4.0",
-    "ari-client": "^2.3.0",
+    "ari-client": "^2.2.0",
     "axios": "^1.7.0",
     "dotenv": "^16.4.0",
     "openai": "^4.73.0",
