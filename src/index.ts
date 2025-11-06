@@ -7,6 +7,7 @@ import { SpeechToTextService } from './services/speech-to-text';
 import { TextToSpeechService } from './services/text-to-speech';
 import { AIAgent } from './services/ai-agent';
 import { CallManager } from './services/call-manager';
+import { AudioServer } from './services/audio-server';
 
 /**
  * AI Companion PBX Agent
@@ -69,6 +70,15 @@ async function main() {
       logger
     );
 
+    // Initialize Audio Server for serving files to Asterisk
+    logger.info('Starting audio server...');
+    const audioServer = new AudioServer(
+      ttsService.getAudioDirectory(),
+      config.httpPort,
+      logger
+    );
+    await audioServer.start();
+
     // Initialize Call Manager
     callManager = new CallManager(
       asteriskClient,
@@ -76,7 +86,8 @@ async function main() {
       ttsService,
       aiAgent,
       config.agent,
-      logger
+      logger,
+      audioServer
     );
 
     // Set up call manager events

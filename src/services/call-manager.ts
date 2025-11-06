@@ -5,6 +5,8 @@ import { AsteriskClient } from './asterisk-client';
 import { SpeechToTextService } from './speech-to-text';
 import { TextToSpeechService } from './text-to-speech';
 import { AIAgent } from './ai-agent';
+import { AudioServer } from './audio-server';
+import os from 'os';
 
 /**
  * Call Manager orchestrates all services to handle phone calls
@@ -16,6 +18,7 @@ export class CallManager extends EventEmitter {
   private aiAgent: AIAgent;
   private logger: Logger;
   private config: AgentConfig;
+  private audioServer: AudioServer;
 
   private activeCalls: Map<string, CallState> = new Map();
   private silenceTimers: Map<string, NodeJS.Timeout> = new Map();
@@ -27,7 +30,8 @@ export class CallManager extends EventEmitter {
     ttsService: TextToSpeechService,
     aiAgent: AIAgent,
     config: AgentConfig,
-    logger: Logger
+    logger: Logger,
+    audioServer: AudioServer
   ) {
     super();
     this.asteriskClient = asteriskClient;
@@ -36,6 +40,7 @@ export class CallManager extends EventEmitter {
     this.aiAgent = aiAgent;
     this.config = config;
     this.logger = logger;
+    this.audioServer = audioServer;
 
     this.setupEventHandlers();
   }
@@ -260,8 +265,14 @@ export class CallManager extends EventEmitter {
       // Generate audio file
       const audioPath = await this.ttsService.synthesize(text, channelId);
 
-      // Play audio through Asterisk
-      await this.asteriskClient.playAudio(channelId, `sound:${audioPath}`);
+      // Convert file path to HTTP URL that Asterisk can access
+      const audioUrl = this.audioServer.getAudioUrl(audioPath);
+
+      this.logger.debug(`Audio file created: ${audioPath}`);
+      this.logger.debug(`Audio URL for Asterisk: ${audioUrl}`);
+
+      // Play audio through Asterisk using HTTP URL
+      await this.asteriskClient.playAudio(channelId, `sound:${audioUrl}`);
 
       // Clean up audio file after a delay
       setTimeout(async () => {
