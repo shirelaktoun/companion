@@ -154,20 +154,31 @@ export class TextToSpeechService {
 
     try {
       // OpenAI TTS voices: alloy, echo, fable, onyx, nova, shimmer
-      // Map our voice name to OpenAI voices, or use 'nova' as default (warm, friendly)
-      const openaiVoice = this.voiceName.toLowerCase().includes('female') ? 'nova' :
-                         this.voiceName.toLowerCase().includes('male') ? 'onyx' : 'nova';
+      // Map voice name or use configured voice directly
+      const validVoices = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'];
+      let openaiVoice = this.voiceName.toLowerCase();
 
-      const mp3Response = await this.openaiClient.audio.speech.create({
+      // If voice name isn't a valid OpenAI voice, try to map it
+      if (!validVoices.includes(openaiVoice)) {
+        if (openaiVoice.includes('female')) {
+          openaiVoice = 'nova';
+        } else if (openaiVoice.includes('male')) {
+          openaiVoice = 'onyx';
+        } else {
+          openaiVoice = 'nova'; // Default
+        }
+      }
+
+      const audioResponse = await this.openaiClient.audio.speech.create({
         model: 'tts-1-hd', // High quality model
         voice: openaiVoice as any,
         input: text,
-        response_format: 'opus' // Opus is efficient for telephony
+        response_format: 'wav' // WAV format for better Asterisk compatibility
       });
 
-      const buffer = Buffer.from(await mp3Response.arrayBuffer());
+      const buffer = Buffer.from(await audioResponse.arrayBuffer());
 
-      const filename = `tts_openai_${channelId || 'unknown'}_${uuidv4()}.opus`;
+      const filename = `tts_openai_${channelId || 'unknown'}_${uuidv4()}.wav`;
       const filePath = path.join(this.audioDir, filename);
 
       await util.promisify(fs.writeFile)(filePath, buffer);
