@@ -271,8 +271,8 @@ export class CallManager extends EventEmitter {
       this.logger.debug(`Audio file created: ${audioPath}`);
       this.logger.debug(`Audio URL for Asterisk: ${audioUrl}`);
 
-      // Play audio through Asterisk using HTTP URL
-      await this.asteriskClient.playAudio(channelId, `sound:${audioUrl}`);
+      // Play audio through Asterisk using HTTP URL (no 'sound:' prefix for HTTP)
+      await this.asteriskClient.playAudio(channelId, audioUrl);
 
       // Clean up audio file after a delay
       setTimeout(async () => {
