@@ -1,11 +1,10 @@
-import textToSpeech from '@google-cloud/text-to-speech';
+import * as textToSpeech from '@google-cloud/text-to-speech';
 import OpenAI from 'openai';
 import { Logger } from 'winston';
 import fs from 'fs';
 import path from 'path';
 import util from 'util';
 import { v4 as uuidv4 } from 'uuid';
-import axios from 'axios';
 
 export type TTSProvider = 'google' | 'openai';
 
