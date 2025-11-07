@@ -34,7 +34,10 @@ export class TextToSpeechService {
     this.provider = provider;
     this.voiceName = config.voiceName || 'en-US-Neural2-J';
     this.languageCode = config.languageCode || 'en-US';
-    this.audioDir = path.join(process.cwd(), 'audio-cache');
+
+    // Use Asterisk's sounds directory for audio files
+    // Asterisk can only play files from its own sounds directory
+    this.audioDir = '/var/lib/asterisk/sounds/en';
 
     // Ensure audio directory exists
     if (!fs.existsSync(this.audioDir)) {
@@ -136,7 +139,9 @@ export class TextToSpeechService {
       await util.promisify(fs.writeFile)(filePath, response.audioContent, 'binary');
 
       this.logger.debug(`Google TTS audio saved to ${filePath}`);
-      return filePath;
+
+      // Return just the filename without extension for sound: prefix
+      return path.basename(filename, '.wav');
 
     } catch (error) {
       this.logger.error('Error with Google TTS:', error);
@@ -184,7 +189,9 @@ export class TextToSpeechService {
       await util.promisify(fs.writeFile)(filePath, buffer);
 
       this.logger.debug(`OpenAI TTS audio saved to ${filePath}`);
-      return filePath;
+
+      // Return just the filename without extension for sound: prefix
+      return path.basename(filename, '.wav');
 
     } catch (error) {
       this.logger.error('Error with OpenAI TTS:', error);
@@ -224,14 +231,19 @@ export class TextToSpeechService {
   /**
    * Delete a specific audio file
    */
-  async deleteFile(filePath: string): Promise<void> {
+  async deleteFile(filename: string): Promise<void> {
     try {
+      // If filename doesn't include path, assume it's in audioDir
+      const filePath = filename.includes(path.sep)
+        ? filename
+        : path.join(this.audioDir, filename + '.wav');
+
       if (fs.existsSync(filePath)) {
         await util.promisify(fs.unlink)(filePath);
         this.logger.debug(`Deleted audio file: ${filePath}`);
       }
     } catch (error) {
-      this.logger.error(`Error deleting audio file ${filePath}:`, error);
+      this.logger.error(`Error deleting audio file ${filename}:`, error);
     }
   }
 

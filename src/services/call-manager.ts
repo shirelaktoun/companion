@@ -5,7 +5,6 @@ import { AsteriskClient } from './asterisk-client';
 import { SpeechToTextService } from './speech-to-text';
 import { TextToSpeechService } from './text-to-speech';
 import { AIAgent } from './ai-agent';
-import { AudioServer } from './audio-server';
 import os from 'os';
 
 /**
@@ -18,7 +17,6 @@ export class CallManager extends EventEmitter {
   private aiAgent: AIAgent;
   private logger: Logger;
   private config: AgentConfig;
-  private audioServer: AudioServer;
 
   private activeCalls: Map<string, CallState> = new Map();
   private silenceTimers: Map<string, NodeJS.Timeout> = new Map();
@@ -30,8 +28,7 @@ export class CallManager extends EventEmitter {
     ttsService: TextToSpeechService,
     aiAgent: AIAgent,
     config: AgentConfig,
-    logger: Logger,
-    audioServer: AudioServer
+    logger: Logger
   ) {
     super();
     this.asteriskClient = asteriskClient;
@@ -40,7 +37,6 @@ export class CallManager extends EventEmitter {
     this.aiAgent = aiAgent;
     this.config = config;
     this.logger = logger;
-    this.audioServer = audioServer;
 
     this.setupEventHandlers();
   }
@@ -262,21 +258,22 @@ export class CallManager extends EventEmitter {
     try {
       this.logger.info(`Speaking to ${channelId}: "${text}"`);
 
-      // Generate audio file
-      const audioPath = await this.ttsService.synthesize(text, channelId);
+      // Generate audio file in Asterisk sounds directory
+      // Returns just the filename without extension
+      const audioFilename = await this.ttsService.synthesize(text, channelId);
 
-      // Convert file path to HTTP URL that Asterisk can access
-      const audioUrl = this.audioServer.getAudioUrl(audioPath);
+      this.logger.debug(`Audio file created: ${audioFilename}`);
 
-      this.logger.debug(`Audio file created: ${audioPath}`);
-      this.logger.debug(`Audio URL for Asterisk: ${audioUrl}`);
+      // Use sound: prefix for Asterisk playback
+      const soundUri = `sound:${audioFilename}`;
+      this.logger.debug(`Playing sound URI: ${soundUri}`);
 
-      // Play audio through Asterisk using HTTP URL (no 'sound:' prefix for HTTP)
-      await this.asteriskClient.playAudio(channelId, audioUrl);
+      // Play audio through Asterisk using sound: prefix
+      await this.asteriskClient.playAudio(channelId, soundUri);
 
       // Clean up audio file after a delay
       setTimeout(async () => {
-        await this.ttsService.deleteFile(audioPath);
+        await this.ttsService.deleteFile(audioFilename);
       }, 60000); // Delete after 1 minute
 
     } catch (error) {
