@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import util from 'util';
 import { v4 as uuidv4 } from 'uuid';
+import { exec } from 'child_process';
 
 export type TTSProvider = 'google' | 'openai';
 
@@ -184,11 +185,20 @@ export class TextToSpeechService {
       const buffer = Buffer.from(await audioResponse.arrayBuffer());
 
       const filename = `tts_openai_${channelId || 'unknown'}_${uuidv4()}.wav`;
+      const tempPath = path.join(this.audioDir, `temp_${filename}`);
       const filePath = path.join(this.audioDir, filename);
 
-      await util.promisify(fs.writeFile)(filePath, buffer);
+      // Save the original audio
+      await util.promisify(fs.writeFile)(tempPath, buffer);
 
-      this.logger.debug(`OpenAI TTS audio saved to ${filePath}`);
+      // Convert to 8kHz mono WAV for Asterisk compatibility
+      // OpenAI generates 24kHz audio, but Asterisk needs 8kHz for telephony
+      await this.convertTo8kHz(tempPath, filePath);
+
+      // Remove temporary file
+      await util.promisify(fs.unlink)(tempPath);
+
+      this.logger.debug(`OpenAI TTS audio saved and converted to ${filePath}`);
 
       // Return just the filename without extension for sound: prefix
       return path.basename(filename, '.wav');
@@ -197,6 +207,27 @@ export class TextToSpeechService {
       this.logger.error('Error with OpenAI TTS:', error);
       throw error;
     }
+  }
+
+  /**
+   * Convert audio file to 8kHz mono WAV for Asterisk telephony
+   */
+  private async convertTo8kHz(inputPath: string, outputPath: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      // Use ffmpeg to convert: 8kHz sample rate, mono channel, 16-bit PCM
+      const command = `ffmpeg -i "${inputPath}" -ar 8000 -ac 1 -sample_fmt s16 -y "${outputPath}" 2>&1`;
+
+      exec(command, (error, stdout, stderr) => {
+        if (error) {
+          this.logger.error(`Audio conversion failed: ${error.message}`);
+          this.logger.error(`FFmpeg output: ${stderr}`);
+          reject(new Error(`Audio conversion failed: ${error.message}`));
+        } else {
+          this.logger.debug(`Audio converted to 8kHz: ${outputPath}`);
+          resolve();
+        }
+      });
+    });
   }
 
   /**
@@ -211,12 +242,18 @@ export class TextToSpeechService {
       let deletedCount = 0;
 
       for (const file of files) {
+        // Skip directories and non-audio files
+        if (!file.endsWith('.wav') && !file.endsWith('.mp3')) {
+          continue;
+        }
+
         const filePath = path.join(this.audioDir, file);
         const stats = await util.promisify(fs.stat)(filePath);
 
         if (now - stats.mtimeMs > maxAge) {
           await util.promisify(fs.unlink)(filePath);
           deletedCount++;
+          this.logger.debug(`Deleted audio file: ${filePath}`);
         }
       }
 
