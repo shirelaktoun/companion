@@ -333,18 +333,26 @@ export class CallManager extends EventEmitter {
     try {
       this.logger.info(`Speaking to AudioSocket ${callId}: "${text}"`);
 
+      // Start sending silence frames to keep connection alive while generating TTS
+      // AudioSocket has a 2-second timeout, so we need to send data immediately
+      const silenceInterval = this.startSilenceFrames(callId);
+
       // Generate audio file (already in 8kHz mulaw format after conversion)
       const audioFilename = await this.ttsService.synthesize(text, callId);
-      const audioPath = `/opt/ai-companion/audio-cache/${audioFilename}.wav`;
 
+      // Stop sending silence frames
+      clearInterval(silenceInterval);
+
+      const audioPath = `/opt/ai-companion/audio-cache/${audioFilename}.wav`;
       this.logger.debug(`Audio file created for AudioSocket: ${audioPath}`);
 
       // Read the audio file
       const fs = require('fs');
       const audioBuffer = fs.readFileSync(audioPath);
 
-      // Skip WAV header (44 bytes) to get raw PCM data
-      const rawAudio = audioBuffer.slice(44);
+      // Skip WAV header (58 bytes for mulaw WAV) to get raw mulaw data
+      // mulaw WAV header is larger than PCM WAV header
+      const rawAudio = audioBuffer.slice(58);
 
       // Send audio through AudioSocket in chunks
       const chunkSize = 160; // 20ms of audio at 8kHz mulaw (160 bytes)
@@ -367,6 +375,22 @@ export class CallManager extends EventEmitter {
       this.logger.error(`Error speaking to AudioSocket ${callId}:`, error);
       throw error;
     }
+  }
+
+  /**
+   * Send silence frames to keep AudioSocket connection alive
+   * Returns interval ID so it can be cleared when real audio is ready
+   */
+  private startSilenceFrames(callId: string): NodeJS.Timeout {
+    // mulaw silence is 0xFF (255)
+    const silenceFrame = Buffer.alloc(160, 0xFF);
+
+    const interval = setInterval(() => {
+      this.audioSocketServer.sendAudio(callId, silenceFrame);
+    }, 20); // Send every 20ms (same as real audio timing)
+
+    this.logger.debug(`Started sending silence frames to keep AudioSocket ${callId} alive`);
+    return interval;
   }
 
   /**
