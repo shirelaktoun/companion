@@ -258,14 +258,15 @@ export class CallManager extends EventEmitter {
     try {
       this.logger.info(`Speaking to ${channelId}: "${text}"`);
 
-      // Generate audio file in Asterisk sounds directory
+      // Generate audio file in audio cache directory
       // Returns just the filename without extension
       const audioFilename = await this.ttsService.synthesize(text, channelId);
 
       this.logger.debug(`Audio file created: ${audioFilename}`);
 
-      // Use sound: prefix for Asterisk playback
-      const soundUri = `sound:${audioFilename}`;
+      // Use sound: prefix with ai-companion subdirectory for Asterisk playback
+      // The audio-cache directory is symlinked to /var/lib/asterisk/sounds/en/ai-companion
+      const soundUri = `sound:ai-companion/${audioFilename}`;
       this.logger.debug(`Playing sound URI: ${soundUri}`);
 
       // Play audio through Asterisk using sound: prefix

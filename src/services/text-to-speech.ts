@@ -35,9 +35,9 @@ export class TextToSpeechService {
     this.voiceName = config.voiceName || 'en-US-Neural2-J';
     this.languageCode = config.languageCode || 'en-US';
 
-    // Use Asterisk's sounds directory for audio files
-    // Asterisk can only play files from its own sounds directory
-    this.audioDir = '/var/lib/asterisk/sounds/en';
+    // Use writable audio cache directory
+    // This will be symlinked to Asterisk sounds directory
+    this.audioDir = '/opt/ai-companion/audio-cache';
 
     // Ensure audio directory exists
     if (!fs.existsSync(this.audioDir)) {
