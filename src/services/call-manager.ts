@@ -78,8 +78,12 @@ export class CallManager extends EventEmitter {
     });
 
     // AudioSocket events
-    this.audioSocketServer.on('connection', (data) => {
-      this.handleAudioSocketConnection(data.callId);
+    this.audioSocketServer.on('connection', async (data) => {
+      try {
+        await this.handleAudioSocketConnection(data.callId);
+      } catch (error) {
+        this.logger.error(`Error in AudioSocket connection handler: ${error}`);
+      }
     });
 
     this.audioSocketServer.on('audio', (data) => {

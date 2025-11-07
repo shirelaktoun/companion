@@ -210,12 +210,14 @@ export class TextToSpeechService {
   }
 
   /**
-   * Convert audio file to 8kHz mono WAV for Asterisk telephony
+   * Convert audio file to 8kHz mono mulaw for Asterisk telephony
+   * Creates both WAV (for sound: protocol) and raw mulaw (for AudioSocket)
    */
   private async convertTo8kHz(inputPath: string, outputPath: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      // Use ffmpeg to convert: 8kHz sample rate, mono channel, 16-bit PCM
-      const command = `ffmpeg -i "${inputPath}" -ar 8000 -ac 1 -sample_fmt s16 -y "${outputPath}" 2>&1`;
+      // Convert to 8kHz mono mulaw WAV (for Asterisk sound: and AudioSocket)
+      // mulaw is the standard telephony codec
+      const command = `ffmpeg -i "${inputPath}" -ar 8000 -ac 1 -acodec pcm_mulaw -y "${outputPath}" 2>&1`;
 
       exec(command, (error, stdout, stderr) => {
         if (error) {
@@ -223,7 +225,7 @@ export class TextToSpeechService {
           this.logger.error(`FFmpeg output: ${stderr}`);
           reject(new Error(`Audio conversion failed: ${error.message}`));
         } else {
-          this.logger.debug(`Audio converted to 8kHz: ${outputPath}`);
+          this.logger.debug(`Audio converted to 8kHz mulaw: ${outputPath}`);
           resolve();
         }
       });
