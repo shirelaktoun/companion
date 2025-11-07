@@ -60,6 +60,13 @@ export class AsteriskClient extends EventEmitter {
 
     // Handle incoming calls
     this.client.on('StasisStart', (event: StasisStart, channel: Channel) => {
+      // Ignore snoop channels and externalMedia channels - they shouldn't be handled as incoming calls
+      const args = event.args || [];
+      if (args.includes('snoop') || args.includes('external')) {
+        this.logger.debug(`Ignoring ${args[0]} channel ${channel.id} entering Stasis`);
+        return;
+      }
+
       this.logger.info(`Incoming call on channel ${channel.id} from ${channel.caller.number}`);
       this.handleIncomingCall(channel);
     });
@@ -251,24 +258,74 @@ export class AsteriskClient extends EventEmitter {
       const snoopChannelId = snoopResponse.data.id;
       this.logger.info(`Started snoop on channel ${channelId}, snoop channel: ${snoopChannelId}`);
 
-      // Start external media on snoop channel to receive audio via AudioSocket
-      this.logger.debug(`Starting external media on snoop channel ${snoopChannelId}...`);
+      // Create externalMedia channel that connects to AudioSocket
+      this.logger.debug(`Creating external media channel for AudioSocket...`);
 
-      // POST /ari/channels/{channelId}/externalMedia
-      await axios.post(
-        `${ariUrl}/channels/${snoopChannelId}/externalMedia`,
+      // POST /ari/channels/externalMedia (creates NEW channel)
+      const externalResponse = await axios.post(
+        `${ariUrl}/channels/externalMedia`,
         {},
         {
           params: {
             app: this.config.appName,
             external_host: '127.0.0.1:5039',
-            format: 'ulaw'
+            format: 'ulaw',
+            channelId: `audiosocket-${channelId}`,
+            appArgs: 'external'
           },
           auth
         }
       );
 
-      this.logger.info(`External media started on snoop channel ${snoopChannelId}`);
+      const externalChannelId = externalResponse.data.id;
+      this.logger.info(`Created external media channel: ${externalChannelId}`);
+
+      // Create bridge to connect snoop and externalMedia channels
+      this.logger.debug(`Creating bridge for audio routing...`);
+
+      // POST /ari/bridges
+      const bridgeResponse = await axios.post(
+        `${ariUrl}/bridges`,
+        {},
+        {
+          params: {
+            type: 'mixing'
+          },
+          auth
+        }
+      );
+
+      const bridgeId = bridgeResponse.data.id;
+      this.logger.info(`Created bridge: ${bridgeId}`);
+
+      // Add snoop channel to bridge
+      await axios.post(
+        `${ariUrl}/bridges/${bridgeId}/addChannel`,
+        {},
+        {
+          params: {
+            channel: snoopChannelId
+          },
+          auth
+        }
+      );
+
+      this.logger.debug(`Added snoop channel ${snoopChannelId} to bridge ${bridgeId}`);
+
+      // Add external media channel to bridge
+      await axios.post(
+        `${ariUrl}/bridges/${bridgeId}/addChannel`,
+        {},
+        {
+          params: {
+            channel: externalChannelId
+          },
+          auth
+        }
+      );
+
+      this.logger.info(`Added external media channel ${externalChannelId} to bridge ${bridgeId}`);
+      this.logger.info(`Audio routing established: ${channelId} -> snoop -> bridge -> AudioSocket`);
 
       return snoopChannelId;
     } catch (error) {
