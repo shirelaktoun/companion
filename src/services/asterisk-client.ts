@@ -2,6 +2,7 @@ import ari, { Client, Channel, StasisStart } from 'ari-client';
 import { EventEmitter } from 'events';
 import { AsteriskConfig } from '../types';
 import { Logger } from 'winston';
+import axios from 'axios';
 
 /**
  * Asterisk ARI Client for managing telephony connections
@@ -222,30 +223,54 @@ export class AsteriskClient extends EventEmitter {
     }
 
     try {
-      const channel = this.client.Channel(channelId);
+      // Create snoop channel using raw HTTP API
+      // ari-client doesn't expose the snoop method, so we use axios directly
+      const ariUrl = `http://${this.config.host}:${this.config.port}/ari`;
+      const auth = {
+        username: this.config.username,
+        password: this.config.password
+      };
 
-      // Create snoop channel to capture audio
-      // TypeScript types may not include snoop, so we cast to any
-      const snoopChannel = await (channel as any).snoop({
-        spy: 'in',  // Capture audio from caller only
-        whisper: 'none',  // Don't whisper anything back
-        app: this.config.appName,
-        appArgs: 'snoop'
-      });
+      this.logger.debug(`Creating snoop channel on ${channelId}...`);
 
-      this.logger.info(`Started snoop on channel ${channelId}, snoop channel: ${snoopChannel.id}`);
+      // POST /ari/channels/{channelId}/snoop
+      const snoopResponse = await axios.post(
+        `${ariUrl}/channels/${channelId}/snoop`,
+        {},
+        {
+          params: {
+            app: this.config.appName,
+            spy: 'in',  // Capture audio from caller only
+            whisper: 'none',  // Don't whisper anything back
+            appArgs: 'snoop'
+          },
+          auth
+        }
+      );
+
+      const snoopChannelId = snoopResponse.data.id;
+      this.logger.info(`Started snoop on channel ${channelId}, snoop channel: ${snoopChannelId}`);
 
       // Start external media on snoop channel to receive audio via AudioSocket
-      // TypeScript types may not include externalMedia, so we cast to any
-      await (snoopChannel as any).externalMedia({
-        app: this.config.appName,
-        external_host: '127.0.0.1:5039',
-        format: 'ulaw'
-      });
+      this.logger.debug(`Starting external media on snoop channel ${snoopChannelId}...`);
 
-      this.logger.info(`External media started on snoop channel ${snoopChannel.id}`);
+      // POST /ari/channels/{channelId}/externalMedia
+      await axios.post(
+        `${ariUrl}/channels/${snoopChannelId}/externalMedia`,
+        {},
+        {
+          params: {
+            app: this.config.appName,
+            external_host: '127.0.0.1:5039',
+            format: 'ulaw'
+          },
+          auth
+        }
+      );
 
-      return snoopChannel.id;
+      this.logger.info(`External media started on snoop channel ${snoopChannelId}`);
+
+      return snoopChannelId;
     } catch (error) {
       this.logger.error(`Error starting snoop on channel ${channelId}:`, error);
       throw error;
