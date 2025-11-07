@@ -206,12 +206,25 @@ export class CallManager extends EventEmitter {
         timestamp: new Date()
       });
 
-      // Speak the response
-      await this.speakToChannel(channelId, response);
+      // Speak the response - check if AudioSocket or regular channel
+      const isAudioSocket = this.audioSocketToChannel.has(channelId);
+      if (isAudioSocket) {
+        await this.speakToAudioSocket(channelId, response);
+      } else {
+        await this.speakToChannel(channelId, response);
+      }
 
     } catch (error) {
       this.logger.error(`Error generating response for ${channelId}:`, error);
-      await this.speakToChannel(channelId, "I'm sorry, I'm having trouble responding. Could you say that again?");
+
+      const isAudioSocket = this.audioSocketToChannel.has(channelId);
+      const errorMessage = "I'm sorry, I'm having trouble responding. Could you say that again?";
+
+      if (isAudioSocket) {
+        await this.speakToAudioSocket(channelId, errorMessage);
+      } else {
+        await this.speakToChannel(channelId, errorMessage);
+      }
     }
   }
 
@@ -260,7 +273,14 @@ export class CallManager extends EventEmitter {
 
     try {
       const prompt = await this.aiAgent.generateSilencePrompt(callState.conversationHistory);
-      await this.speakToChannel(channelId, prompt);
+
+      // Check if AudioSocket or regular channel
+      const isAudioSocket = this.audioSocketToChannel.has(channelId);
+      if (isAudioSocket) {
+        await this.speakToAudioSocket(channelId, prompt);
+      } else {
+        await this.speakToChannel(channelId, prompt);
+      }
 
       // Restart silence timer
       this.startSilenceTimer(channelId);
@@ -271,7 +291,7 @@ export class CallManager extends EventEmitter {
   }
 
   /**
-   * Speak text to a channel
+   * Speak text to a channel via Asterisk sound: protocol
    */
   private async speakToChannel(channelId: string, text: string): Promise<void> {
     try {
@@ -298,6 +318,49 @@ export class CallManager extends EventEmitter {
 
     } catch (error) {
       this.logger.error(`Error speaking to channel ${channelId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Speak text to an AudioSocket connection
+   */
+  private async speakToAudioSocket(callId: string, text: string): Promise<void> {
+    try {
+      this.logger.info(`Speaking to AudioSocket ${callId}: "${text}"`);
+
+      // Generate audio file (already in 8kHz mulaw format after conversion)
+      const audioFilename = await this.ttsService.synthesize(text, callId);
+      const audioPath = `/opt/ai-companion/audio-cache/${audioFilename}.wav`;
+
+      this.logger.debug(`Audio file created for AudioSocket: ${audioPath}`);
+
+      // Read the audio file
+      const fs = require('fs');
+      const audioBuffer = fs.readFileSync(audioPath);
+
+      // Skip WAV header (44 bytes) to get raw PCM data
+      const rawAudio = audioBuffer.slice(44);
+
+      // Send audio through AudioSocket in chunks
+      const chunkSize = 160; // 20ms of audio at 8kHz mulaw (160 bytes)
+      for (let i = 0; i < rawAudio.length; i += chunkSize) {
+        const chunk = rawAudio.slice(i, Math.min(i + chunkSize, rawAudio.length));
+        this.audioSocketServer.sendAudio(callId, chunk);
+
+        // Small delay to simulate real-time playback (20ms per chunk)
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+
+      this.logger.debug(`Finished playing audio to AudioSocket ${callId}`);
+
+      // Clean up audio file after a delay
+      setTimeout(async () => {
+        await this.ttsService.deleteFile(audioFilename);
+      }, 60000); // Delete after 1 minute
+
+    } catch (error) {
+      this.logger.error(`Error speaking to AudioSocket ${callId}:`, error);
       throw error;
     }
   }
@@ -379,10 +442,52 @@ export class CallManager extends EventEmitter {
 
   /**
    * Handle AudioSocket connection (incoming audio stream)
+   * When using AudioSocket in dialplan, this replaces the Stasis call-answered event
    */
-  private handleAudioSocketConnection(callId: string): void {
+  private async handleAudioSocketConnection(callId: string): Promise<void> {
     this.logger.info(`AudioSocket connection established: ${callId}`);
-    // Will be mapped to channel when we get first audio packet
+
+    // Create a call state for this AudioSocket connection
+    // Use the AudioSocket UUID as both the channel ID and call ID
+    const callState: CallState = {
+      channelId: callId,
+      callerId: 'AudioSocket',
+      callerName: 'AudioSocket Caller',
+      startTime: new Date(),
+      conversationHistory: [],
+      currentSpeech: '',
+      isActive: true
+    };
+
+    this.activeCalls.set(callId, callState);
+    this.transcriptBuffers.set(callId, '');
+
+    // Map AudioSocket to itself (since we're not using ARI channels)
+    this.audioSocketToChannel.set(callId, callId);
+    this.channelToAudioSocket.set(callId, callId);
+
+    try {
+      // Start speech-to-text for this call
+      await this.sttService.startTranscription(callId);
+
+      // Generate and speak greeting
+      const greeting = await this.aiAgent.generateResponse([]);
+      await this.speakToAudioSocket(callId, greeting);
+
+      // Add greeting to conversation history
+      callState.conversationHistory.push({
+        role: 'assistant',
+        content: greeting,
+        timestamp: new Date()
+      });
+
+      // Start silence monitoring
+      this.startSilenceTimer(callId);
+
+    } catch (error) {
+      this.logger.error(`Error handling AudioSocket connection ${callId}:`, error);
+      this.audioSocketServer.closeConnection(callId);
+    }
   }
 
   /**
