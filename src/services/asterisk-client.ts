@@ -62,8 +62,11 @@ export class AsteriskClient extends EventEmitter {
     this.client.on('StasisStart', (event: StasisStart, channel: Channel) => {
       // Ignore snoop channels and externalMedia channels - they shouldn't be handled as incoming calls
       const args = event.args || [];
-      if (args.includes('snoop') || args.includes('external')) {
-        this.logger.debug(`Ignoring ${args[0]} channel ${channel.id} entering Stasis`);
+      const channelId = channel.id || '';
+
+      // Check both appArgs and channel ID to prevent recursion
+      if (args.includes('snoop') || args.includes('external') || channelId.startsWith('audiosocket-')) {
+        this.logger.debug(`Ignoring internal channel ${channelId} entering Stasis (args: ${args.join(',')})`);
         return;
       }
 
