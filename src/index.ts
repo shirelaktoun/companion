@@ -7,6 +7,7 @@ import { SpeechToTextService } from './services/speech-to-text';
 import { TextToSpeechService } from './services/text-to-speech';
 import { AIAgent } from './services/ai-agent';
 import { CallManager } from './services/call-manager';
+import { AudioSocketServer } from './services/audiosocket-server';
 
 /**
  * AI Companion PBX Agent
@@ -69,6 +70,11 @@ async function main() {
       logger
     );
 
+    // Initialize AudioSocket Server for real-time audio capture
+    logger.info('Starting AudioSocket server...');
+    const audioSocketServer = new AudioSocketServer(5038, logger);
+    await audioSocketServer.start();
+
     // Initialize Call Manager
     // Note: Audio files are now saved directly to Asterisk's sounds directory
     // and played using the sound: prefix, so no HTTP server is needed
@@ -78,7 +84,8 @@ async function main() {
       ttsService,
       aiAgent,
       config.agent,
-      logger
+      logger,
+      audioSocketServer
     );
 
     // Set up call manager events

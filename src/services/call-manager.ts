@@ -5,6 +5,7 @@ import { AsteriskClient } from './asterisk-client';
 import { SpeechToTextService } from './speech-to-text';
 import { TextToSpeechService } from './text-to-speech';
 import { AIAgent } from './ai-agent';
+import { AudioSocketServer } from './audiosocket-server';
 import os from 'os';
 
 /**
@@ -17,10 +18,13 @@ export class CallManager extends EventEmitter {
   private aiAgent: AIAgent;
   private logger: Logger;
   private config: AgentConfig;
+  private audioSocketServer: AudioSocketServer;
 
   private activeCalls: Map<string, CallState> = new Map();
   private silenceTimers: Map<string, NodeJS.Timeout> = new Map();
   private transcriptBuffers: Map<string, string> = new Map();
+  private channelToAudioSocket: Map<string, string> = new Map(); // Maps channelId -> audioSocketCallId
+  private audioSocketToChannel: Map<string, string> = new Map(); // Maps audioSocketCallId -> channelId
 
   constructor(
     asteriskClient: AsteriskClient,
@@ -28,7 +32,8 @@ export class CallManager extends EventEmitter {
     ttsService: TextToSpeechService,
     aiAgent: AIAgent,
     config: AgentConfig,
-    logger: Logger
+    logger: Logger,
+    audioSocketServer: AudioSocketServer
   ) {
     super();
     this.asteriskClient = asteriskClient;
@@ -37,6 +42,7 @@ export class CallManager extends EventEmitter {
     this.aiAgent = aiAgent;
     this.config = config;
     this.logger = logger;
+    this.audioSocketServer = audioSocketServer;
 
     this.setupEventHandlers();
   }
@@ -69,6 +75,19 @@ export class CallManager extends EventEmitter {
 
     this.sttService.on('speech-started', (data) => {
       this.handleSpeechStarted(data.channelId);
+    });
+
+    // AudioSocket events
+    this.audioSocketServer.on('connection', (data) => {
+      this.handleAudioSocketConnection(data.callId);
+    });
+
+    this.audioSocketServer.on('audio', (data) => {
+      this.handleAudioSocketAudio(data.callId, data.audioData);
+    });
+
+    this.audioSocketServer.on('end', (data) => {
+      this.handleAudioSocketEnd(data.callId);
     });
   }
 
@@ -359,6 +378,55 @@ export class CallManager extends EventEmitter {
   }
 
   /**
+   * Handle AudioSocket connection (incoming audio stream)
+   */
+  private handleAudioSocketConnection(callId: string): void {
+    this.logger.info(`AudioSocket connection established: ${callId}`);
+    // Will be mapped to channel when we get first audio packet
+  }
+
+  /**
+   * Handle audio data from AudioSocket
+   */
+  private handleAudioSocketAudio(callId: string, audioData: Buffer): void {
+    // Try to find the channel ID associated with this AudioSocket call ID
+    let channelId = this.audioSocketToChannel.get(callId);
+
+    // If not mapped yet, try to find the most recent active call
+    // (AudioSocket connects slightly after the call is answered)
+    if (!channelId) {
+      // Find the most recently added call that doesn't have an AudioSocket mapping
+      for (const [chId, callState] of this.activeCalls.entries()) {
+        if (!this.channelToAudioSocket.has(chId)) {
+          channelId = chId;
+          this.audioSocketToChannel.set(callId, channelId);
+          this.channelToAudioSocket.set(channelId, callId);
+          this.logger.info(`Mapped AudioSocket ${callId} to channel ${channelId}`);
+          break;
+        }
+      }
+    }
+
+    // If we have a mapping, forward audio to STT
+    if (channelId && this.sttService.isActive(channelId)) {
+      this.sttService.sendAudio(channelId, audioData);
+    }
+  }
+
+  /**
+   * Handle AudioSocket connection end
+   */
+  private handleAudioSocketEnd(callId: string): void {
+    this.logger.info(`AudioSocket connection ended: ${callId}`);
+    const channelId = this.audioSocketToChannel.get(callId);
+
+    if (channelId) {
+      this.audioSocketToChannel.delete(callId);
+      this.channelToAudioSocket.delete(channelId);
+    }
+  }
+
+  /**
    * Shutdown and cleanup
    */
   async shutdown(): Promise<void> {
@@ -384,6 +452,8 @@ export class CallManager extends EventEmitter {
 
     this.activeCalls.clear();
     this.transcriptBuffers.clear();
+    this.channelToAudioSocket.clear();
+    this.audioSocketToChannel.clear();
 
     this.logger.info('Call manager shutdown complete');
   }
