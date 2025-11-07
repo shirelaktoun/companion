@@ -213,6 +213,63 @@ export class AsteriskClient extends EventEmitter {
   }
 
   /**
+   * Start snooping on a channel to capture audio
+   * Returns the snoop channel ID
+   */
+  async startSnoop(channelId: string): Promise<string> {
+    if (!this.client) {
+      throw new Error('Not connected to Asterisk');
+    }
+
+    try {
+      const channel = this.client.Channel(channelId);
+
+      // Create snoop channel to capture audio
+      // TypeScript types may not include snoop, so we cast to any
+      const snoopChannel = await (channel as any).snoop({
+        spy: 'in',  // Capture audio from caller only
+        whisper: 'none',  // Don't whisper anything back
+        app: this.config.appName,
+        appArgs: 'snoop'
+      });
+
+      this.logger.info(`Started snoop on channel ${channelId}, snoop channel: ${snoopChannel.id}`);
+
+      // Start external media on snoop channel to receive audio via AudioSocket
+      // TypeScript types may not include externalMedia, so we cast to any
+      await (snoopChannel as any).externalMedia({
+        app: this.config.appName,
+        external_host: '127.0.0.1:5039',
+        format: 'ulaw'
+      });
+
+      this.logger.info(`External media started on snoop channel ${snoopChannel.id}`);
+
+      return snoopChannel.id;
+    } catch (error) {
+      this.logger.error(`Error starting snoop on channel ${channelId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Stop snooping on a channel
+   */
+  async stopSnoop(snoopChannelId: string): Promise<void> {
+    if (!this.client) {
+      throw new Error('Not connected to Asterisk');
+    }
+
+    try {
+      const channel = this.client.Channel(snoopChannelId);
+      await channel.hangup();
+      this.logger.info(`Stopped snoop channel ${snoopChannelId}`);
+    } catch (error) {
+      this.logger.error(`Error stopping snoop channel ${snoopChannelId}:`, error);
+    }
+  }
+
+  /**
    * Hangup a channel
    */
   async hangup(channelId: string): Promise<void> {
