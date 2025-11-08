@@ -72,7 +72,7 @@ async function main() {
 
     // Initialize AudioSocket Server for real-time audio capture
     logger.info('Starting AudioSocket server...');
-    const audioSocketServer = new AudioSocketServer(5038, logger);
+    const audioSocketServer = new AudioSocketServer(5039, logger);
     await audioSocketServer.start();
 
     // Initialize Call Manager
