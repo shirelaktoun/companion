@@ -60,13 +60,13 @@ export class AsteriskClient extends EventEmitter {
 
     // Handle incoming calls
     this.client.on('StasisStart', (event: StasisStart, channel: Channel) => {
-      // Ignore snoop channels and externalMedia channels - they shouldn't be handled as incoming calls
-      const args = event.args || [];
+      // Ignore snoop channels - they shouldn't be handled as incoming calls
+      const channelName = channel.name || '';
       const channelId = channel.id || '';
 
-      // Check both appArgs and channel ID to prevent recursion
-      if (args.includes('snoop') || args.includes('external') || channelId.startsWith('audiosocket-')) {
-        this.logger.debug(`Ignoring internal channel ${channelId} entering Stasis (args: ${args.join(',')})`);
+      // Snoop channels have names like "Snoop/PJSIP-xxxx..." - filter them out
+      if (channelName.startsWith('Snoop/') || channelId.startsWith('audiosocket-')) {
+        this.logger.debug(`Ignoring snoop/internal channel ${channelName} (${channelId}) entering Stasis`);
         return;
       }
 
@@ -253,10 +253,10 @@ export class AsteriskClient extends EventEmitter {
         {},
         {
           params: {
-            app: this.config.appName,
             spy: 'in',  // Capture audio from caller only
             whisper: 'none',  // Don't whisper anything back
-            appArgs: audioSocketUuid  // Pass UUID as app arg (will be available as ARG1 in dialplan)
+            app: this.config.appName,  // Snoop enters Stasis (will be filtered in StasisStart handler)
+            appArgs: audioSocketUuid  // Pass UUID as app arg
           },
           auth
         }
@@ -265,26 +265,8 @@ export class AsteriskClient extends EventEmitter {
       const snoopChannelId = snoopResponse.data.id;
       this.logger.info(`Started snoop on channel ${channelId}, snoop channel: ${snoopChannelId}`);
 
-      // Set channel variable with AudioSocket UUID
-      // This will be available in dialplan as ${AUDIOSOCKET_UUID}
-      this.logger.debug(`Setting AudioSocket UUID variable on snoop channel...`);
-
-      // POST /ari/channels/{channelId}/variable
-      await axios.post(
-        `${ariUrl}/channels/${snoopChannelId}/variable`,
-        {},
-        {
-          params: {
-            variable: 'AUDIOSOCKET_UUID',
-            value: audioSocketUuid
-          },
-          auth
-        }
-      );
-
       // Send snoop channel to dialplan to execute AudioSocket
-      // This will make the snoop channel connect to our AudioSocket server via TCP
-      this.logger.debug(`Sending snoop channel to AudioSocket dialplan...`);
+      this.logger.debug(`Sending snoop channel ${snoopChannelId} to AudioSocket dialplan...`);
 
       // POST /ari/channels/{channelId}/continue
       await axios.post(
@@ -293,15 +275,14 @@ export class AsteriskClient extends EventEmitter {
         {
           params: {
             context: 'ai-companion-audiosocket',
-            extension: 's',
+            extension: audioSocketUuid,  // Use UUID as extension
             priority: 1
           },
           auth
         }
       );
 
-      this.logger.info(`Snoop channel ${snoopChannelId} sent to AudioSocket dialplan`);
-      this.logger.info(`AudioSocket UUID for this call: ${audioSocketUuid}`);
+      this.logger.info(`Snoop channel sent to AudioSocket dialplan with UUID: ${audioSocketUuid}`);
 
       return snoopChannelId;
     } catch (error) {
