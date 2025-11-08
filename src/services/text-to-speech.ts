@@ -134,15 +134,23 @@ export class TextToSpeechService {
         throw new Error('No audio content received from Google TTS');
       }
 
-      const filename = `tts_google_${channelId || 'unknown'}_${uuidv4()}.wav`;
+      const filename = `tts_google_${channelId || 'unknown'}_${uuidv4()}.ulaw`;
+      const tempPath = path.join(this.audioDir, `temp_${filename}`);
       const filePath = path.join(this.audioDir, filename);
 
-      await util.promisify(fs.writeFile)(filePath, response.audioContent, 'binary');
+      // Save the original audio
+      await util.promisify(fs.writeFile)(tempPath, response.audioContent, 'binary');
 
-      this.logger.debug(`Google TTS audio saved to ${filePath}`);
+      // Convert to raw mulaw for Asterisk compatibility
+      await this.convertTo8kHzMulaw(tempPath, filePath);
+
+      // Remove temporary file
+      await util.promisify(fs.unlink)(tempPath);
+
+      this.logger.debug(`Google TTS audio saved and converted to ${filePath}`);
 
       // Return just the filename without extension for sound: prefix
-      return path.basename(filename, '.wav');
+      return path.basename(filename, '.ulaw');
 
     } catch (error) {
       this.logger.error('Error with Google TTS:', error);
@@ -184,16 +192,17 @@ export class TextToSpeechService {
 
       const buffer = Buffer.from(await audioResponse.arrayBuffer());
 
-      const filename = `tts_openai_${channelId || 'unknown'}_${uuidv4()}.wav`;
+      const filename = `tts_openai_${channelId || 'unknown'}_${uuidv4()}.ulaw`;
       const tempPath = path.join(this.audioDir, `temp_${filename}`);
       const filePath = path.join(this.audioDir, filename);
 
       // Save the original audio
       await util.promisify(fs.writeFile)(tempPath, buffer);
 
-      // Convert to 8kHz mono WAV for Asterisk compatibility
+      // Convert to 8kHz mono raw mulaw for Asterisk compatibility
       // OpenAI generates 24kHz audio, but Asterisk needs 8kHz for telephony
-      await this.convertTo8kHz(tempPath, filePath);
+      // Using raw mulaw format (.ulaw) instead of WAV for sound: prefix compatibility
+      await this.convertTo8kHzMulaw(tempPath, filePath);
 
       // Remove temporary file
       await util.promisify(fs.unlink)(tempPath);
@@ -201,7 +210,7 @@ export class TextToSpeechService {
       this.logger.debug(`OpenAI TTS audio saved and converted to ${filePath}`);
 
       // Return just the filename without extension for sound: prefix
-      return path.basename(filename, '.wav');
+      return path.basename(filename, '.ulaw');
 
     } catch (error) {
       this.logger.error('Error with OpenAI TTS:', error);
@@ -210,14 +219,15 @@ export class TextToSpeechService {
   }
 
   /**
-   * Convert audio file to 8kHz mono mulaw for Asterisk telephony
-   * Creates both WAV (for sound: protocol) and raw mulaw (for AudioSocket)
+   * Convert audio file to 8kHz mono raw mulaw for Asterisk telephony
+   * Asterisk's sound: prefix requires raw mulaw format (.ulaw), not WAV
    */
-  private async convertTo8kHz(inputPath: string, outputPath: string): Promise<void> {
+  private async convertTo8kHzMulaw(inputPath: string, outputPath: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      // Convert to 8kHz mono mulaw WAV (for Asterisk sound: and AudioSocket)
-      // mulaw is the standard telephony codec
-      const command = `ffmpeg -i "${inputPath}" -ar 8000 -ac 1 -acodec pcm_mulaw -y "${outputPath}" 2>&1`;
+      // Convert to 8kHz mono raw mulaw (no WAV container)
+      // -f mulaw outputs raw mulaw format instead of WAV container
+      // This is required for Asterisk's sound: prefix
+      const command = `ffmpeg -i "${inputPath}" -ar 8000 -ac 1 -f mulaw -y "${outputPath}" 2>&1`;
 
       exec(command, (error, stdout, stderr) => {
         if (error) {
@@ -225,7 +235,7 @@ export class TextToSpeechService {
           this.logger.error(`FFmpeg output: ${stderr}`);
           reject(new Error(`Audio conversion failed: ${error.message}`));
         } else {
-          this.logger.debug(`Audio converted to 8kHz mulaw: ${outputPath}`);
+          this.logger.debug(`Audio converted to 8kHz raw mulaw: ${outputPath}`);
           resolve();
         }
       });
@@ -275,7 +285,7 @@ export class TextToSpeechService {
       // If filename doesn't include path, assume it's in audioDir
       const filePath = filename.includes(path.sep)
         ? filename
-        : path.join(this.audioDir, filename + '.wav');
+        : path.join(this.audioDir, filename + '.ulaw');
 
       if (fs.existsSync(filePath)) {
         await util.promisify(fs.unlink)(filePath);
