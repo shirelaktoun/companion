@@ -123,11 +123,13 @@ export class CallManager extends EventEmitter {
       // Start snoop channel to capture audio via AudioSocket
       const snoopChannelId = await this.asteriskClient.startSnoop(data.channelId);
 
-      // Map snoop channel to main channel
-      this.audioSocketToChannel.set(snoopChannelId, data.channelId);
-      this.channelToAudioSocket.set(data.channelId, snoopChannelId);
+      // Map AudioSocket UUID to main channel
+      // The UUID is the channel ID with dots and dashes removed
+      const audioSocketUuid = data.channelId.replace(/\./g, '').replace(/-/g, '');
+      this.audioSocketToChannel.set(audioSocketUuid, data.channelId);
+      this.channelToAudioSocket.set(data.channelId, audioSocketUuid);
 
-      this.logger.info(`Snoop channel ${snoopChannelId} mapped to main channel ${data.channelId}`);
+      this.logger.info(`AudioSocket UUID ${audioSocketUuid} mapped to main channel ${data.channelId}`);
 
       // Generate and speak greeting
       const greeting = await this.aiAgent.generateResponse([]);

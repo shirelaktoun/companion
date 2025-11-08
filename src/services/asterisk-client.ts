@@ -243,6 +243,10 @@ export class AsteriskClient extends EventEmitter {
 
       this.logger.debug(`Creating snoop channel on ${channelId}...`);
 
+      // Generate UUID for AudioSocket connection
+      // This will be used to identify the audio stream
+      const audioSocketUuid = channelId.replace(/\./g, '').replace(/-/g, '');
+
       // POST /ari/channels/{channelId}/snoop
       const snoopResponse = await axios.post(
         `${ariUrl}/channels/${channelId}/snoop`,
@@ -252,7 +256,7 @@ export class AsteriskClient extends EventEmitter {
             app: this.config.appName,
             spy: 'in',  // Capture audio from caller only
             whisper: 'none',  // Don't whisper anything back
-            appArgs: 'snoop'
+            appArgs: audioSocketUuid  // Pass UUID as app arg (will be available as ARG1 in dialplan)
           },
           auth
         }
@@ -261,74 +265,43 @@ export class AsteriskClient extends EventEmitter {
       const snoopChannelId = snoopResponse.data.id;
       this.logger.info(`Started snoop on channel ${channelId}, snoop channel: ${snoopChannelId}`);
 
-      // Create externalMedia channel that connects to AudioSocket
-      this.logger.debug(`Creating external media channel for AudioSocket...`);
+      // Set channel variable with AudioSocket UUID
+      // This will be available in dialplan as ${AUDIOSOCKET_UUID}
+      this.logger.debug(`Setting AudioSocket UUID variable on snoop channel...`);
 
-      // POST /ari/channels/externalMedia (creates NEW channel)
-      const externalResponse = await axios.post(
-        `${ariUrl}/channels/externalMedia`,
-        {},
-        {
-          params: {
-            app: this.config.appName,
-            external_host: '127.0.0.1:5039',
-            format: 'ulaw',
-            channelId: `audiosocket-${channelId}`,
-            appArgs: 'external'
-          },
-          auth
-        }
-      );
-
-      const externalChannelId = externalResponse.data.id;
-      this.logger.info(`Created external media channel: ${externalChannelId}`);
-
-      // Create bridge to connect snoop and externalMedia channels
-      this.logger.debug(`Creating bridge for audio routing...`);
-
-      // POST /ari/bridges
-      const bridgeResponse = await axios.post(
-        `${ariUrl}/bridges`,
-        {},
-        {
-          params: {
-            type: 'mixing'
-          },
-          auth
-        }
-      );
-
-      const bridgeId = bridgeResponse.data.id;
-      this.logger.info(`Created bridge: ${bridgeId}`);
-
-      // Add snoop channel to bridge
+      // POST /ari/channels/{channelId}/variable
       await axios.post(
-        `${ariUrl}/bridges/${bridgeId}/addChannel`,
+        `${ariUrl}/channels/${snoopChannelId}/variable`,
         {},
         {
           params: {
-            channel: snoopChannelId
+            variable: 'AUDIOSOCKET_UUID',
+            value: audioSocketUuid
           },
           auth
         }
       );
 
-      this.logger.debug(`Added snoop channel ${snoopChannelId} to bridge ${bridgeId}`);
+      // Send snoop channel to dialplan to execute AudioSocket
+      // This will make the snoop channel connect to our AudioSocket server via TCP
+      this.logger.debug(`Sending snoop channel to AudioSocket dialplan...`);
 
-      // Add external media channel to bridge
+      // POST /ari/channels/{channelId}/continue
       await axios.post(
-        `${ariUrl}/bridges/${bridgeId}/addChannel`,
+        `${ariUrl}/channels/${snoopChannelId}/continue`,
         {},
         {
           params: {
-            channel: externalChannelId
+            context: 'ai-companion-audiosocket',
+            extension: 's',
+            priority: 1
           },
           auth
         }
       );
 
-      this.logger.info(`Added external media channel ${externalChannelId} to bridge ${bridgeId}`);
-      this.logger.info(`Audio routing established: ${channelId} -> snoop -> bridge -> AudioSocket`);
+      this.logger.info(`Snoop channel ${snoopChannelId} sent to AudioSocket dialplan`);
+      this.logger.info(`AudioSocket UUID for this call: ${audioSocketUuid}`);
 
       return snoopChannelId;
     } catch (error) {
