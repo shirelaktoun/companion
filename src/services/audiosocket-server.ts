@@ -84,9 +84,8 @@ export class AudioSocketServer extends EventEmitter {
         // Emit connection event
         this.emit('connection', { callId });
 
-        // Send silence frames back to keep connection alive
-        // Asterisk expects bidirectional audio
-        this.startSilenceFrames(callId, socket);
+        // DON'T send silence frames - snoop is receive-only (Asterisk -> us)
+        // Sending audio back causes ECONNRESET
       }
 
       // Process audio frames
