@@ -59,26 +59,15 @@ export class AudioSocketServer extends EventEmitter {
     socket.on('data', (data: Buffer) => {
       buffer = Buffer.concat([buffer, data]);
 
-      // Log all data received for debugging
-      if (!uuidReceived) {
-        this.logger.info(`[SOCKET] Received ${data.length} bytes (initial handshake), buffer total: ${buffer.length} bytes`);
-      } else if (callId) {
-        this.logger.info(`[SOCKET] Received ${data.length} bytes for call ${callId}, buffer total: ${buffer.length} bytes`);
-      }
-
       // First, read the protocol header (3 bytes) + UUID (16 bytes) = 19 bytes total
       // Asterisk AudioSocket sends: [3-byte header][16-byte UUID][audio frames...]
       if (!uuidReceived && buffer.length >= 19) {
         // Skip first 3 bytes (protocol header: version/flags/length)
-        const header = buffer.slice(0, 3);
-        this.logger.debug(`AudioSocket protocol header (hex): ${header.toString('hex')}`);
+        buffer.slice(0, 3);
 
         // Read the next 16 bytes as UUID
         const uuidBytes = buffer.slice(3, 19);
         buffer = buffer.slice(19);
-
-        // Log raw UUID bytes for debugging
-        this.logger.debug(`AudioSocket UUID raw bytes (hex): ${uuidBytes.toString('hex')}`);
 
         // Convert 16 bytes to UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
         const hex = uuidBytes.toString('hex');
@@ -86,8 +75,7 @@ export class AudioSocketServer extends EventEmitter {
 
         uuidReceived = true;
 
-        this.logger.info(`AudioSocket connection from snoop channel: ${callId}`);
-        this.logger.info(`[SOCKET] UUID parsed, ${buffer.length} bytes remaining in buffer for audio frames`);
+        this.logger.info(`AudioSocket connection established: ${callId}`);
         this.connections.set(callId, socket);
 
         // Emit connection event
@@ -98,20 +86,13 @@ export class AudioSocketServer extends EventEmitter {
       }
 
       // Process audio frames
-      if (uuidReceived && buffer.length > 0) {
-        this.logger.info(`[SOCKET] Processing buffer: ${buffer.length} bytes available for call ${callId}`);
-      }
-
       while (uuidReceived && buffer.length >= 3) {
         // Read frame header
         const kind = buffer.readUInt8(0);
         const length = buffer.readUInt16BE(1);
 
-        this.logger.info(`[SOCKET] Frame header: kind=${kind}, length=${length}, buffer=${buffer.length}`);
-
         // Check if we have the full frame
         if (buffer.length < 3 + length) {
-          this.logger.info(`[SOCKET] Incomplete frame: need ${3 + length} bytes, have ${buffer.length}, waiting...`);
           break; // Wait for more data
         }
 
@@ -124,12 +105,6 @@ export class AudioSocketServer extends EventEmitter {
         // 0x10 (16) = audio frame (SLIN - signed linear 16-bit)
         // 0x01 = hangup
         if ((kind === 0x00 || kind === 0x10) && callId) {
-          frameCount++;
-          if (frameCount % 50 === 1) {
-            // Log every 50th frame to avoid spam (50 frames = ~1 second of audio)
-            this.logger.info(`AudioSocket audio frame for ${callId}: kind=${kind}, ${audioData.length} bytes (frame ${frameCount})`);
-          }
-
           // Emit audio data event
           this.emit('audio', {
             callId,
@@ -138,8 +113,6 @@ export class AudioSocketServer extends EventEmitter {
         } else if (kind === 0x01) {
           this.logger.debug(`AudioSocket hangup received for ${callId}`);
           this.emit('hangup', { callId });
-        } else {
-          this.logger.warn(`Unknown AudioSocket frame kind: ${kind} (length=${length})`);
         }
       }
     });

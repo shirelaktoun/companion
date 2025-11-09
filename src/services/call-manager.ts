@@ -79,12 +79,10 @@ export class CallManager extends EventEmitter {
 
     // AudioSocket events - for snoop channel audio capture
     this.audioSocketServer.on('connection', (data) => {
-      this.logger.info(`AudioSocket connection from snoop channel: ${data.callId}`);
       // The mapping is already done in handleCallAnswered via startSnoop
     });
 
     this.audioSocketServer.on('audio', (data) => {
-      this.logger.info(`[AUDIO DEBUG] AudioSocket 'audio' event fired for callId: ${data.callId}, size: ${data.audioData.length}`);
       this.handleAudioSocketAudio(data.callId, data.audioData);
     });
 
@@ -394,8 +392,6 @@ export class CallManager extends EventEmitter {
    * Handle audio data from AudioSocket
    */
   private handleAudioSocketAudio(callId: string, audioData: Buffer): void {
-    this.logger.info(`[AUDIO DEBUG] Received audio from AudioSocket ${callId}, size: ${audioData.length} bytes`);
-
     // Try to find the channel ID associated with this AudioSocket call ID
     let channelId = this.audioSocketToChannel.get(callId);
 
@@ -408,24 +404,15 @@ export class CallManager extends EventEmitter {
           channelId = chId;
           this.audioSocketToChannel.set(callId, channelId);
           this.channelToAudioSocket.set(channelId, callId);
-          this.logger.info(`Mapped AudioSocket ${callId} to channel ${channelId}`);
+          this.logger.debug(`Mapped AudioSocket ${callId} to channel ${channelId}`);
           break;
         }
       }
     }
 
     // If we have a mapping, forward audio to STT
-    if (channelId) {
-      const isActive = this.sttService.isActive(channelId);
-      this.logger.info(`Audio received for ${channelId}, STT active: ${isActive}, audio size: ${audioData.length} bytes`);
-
-      if (isActive) {
-        this.sttService.sendAudio(channelId, audioData);
-      } else {
-        this.logger.warn(`STT not active for channel ${channelId}, cannot send audio`);
-      }
-    } else {
-      this.logger.warn(`No channel mapping found for AudioSocket ${callId}`);
+    if (channelId && this.sttService.isActive(channelId)) {
+      this.sttService.sendAudio(channelId, audioData);
     }
   }
 

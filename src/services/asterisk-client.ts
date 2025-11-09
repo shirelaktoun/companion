@@ -105,6 +105,23 @@ export class AsteriskClient extends EventEmitter {
    */
   private async handleIncomingCall(channel: Channel): Promise<void> {
     try {
+      // Send ringing indication to caller
+      const ariUrl = `http://${this.config.host}:${this.config.port}/ari`;
+      const auth = {
+        username: this.config.username,
+        password: this.config.password
+      };
+
+      await axios.post(
+        `${ariUrl}/channels/${channel.id}/ring`,
+        {},
+        { auth }
+      );
+      this.logger.debug(`Ringing channel ${channel.id}`);
+
+      // Ring for 1 second before answering
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
       // Answer the call
       await channel.answer();
       this.logger.info(`Answered channel ${channel.id}`);
