@@ -58,14 +58,19 @@ export class AudioSocketServer extends EventEmitter {
     socket.on('data', (data: Buffer) => {
       buffer = Buffer.concat([buffer, data]);
 
-      // First, read the UUID (16 bytes)
-      // AudioSocket sends UUID as 16 raw bytes, we need to format it properly
-      if (!uuidReceived && buffer.length >= 16) {
-        const uuidBytes = buffer.slice(0, 16);
-        buffer = buffer.slice(16);
+      // First, read the protocol header (3 bytes) + UUID (16 bytes) = 19 bytes total
+      // Asterisk AudioSocket sends: [3-byte header][16-byte UUID][audio frames...]
+      if (!uuidReceived && buffer.length >= 19) {
+        // Skip first 3 bytes (protocol header: version/flags/length)
+        const header = buffer.slice(0, 3);
+        this.logger.debug(`AudioSocket protocol header (hex): ${header.toString('hex')}`);
 
-        // Log raw bytes for debugging
-        this.logger.debug(`AudioSocket received 16 raw bytes (hex): ${uuidBytes.toString('hex')}`);
+        // Read the next 16 bytes as UUID
+        const uuidBytes = buffer.slice(3, 19);
+        buffer = buffer.slice(19);
+
+        // Log raw UUID bytes for debugging
+        this.logger.debug(`AudioSocket UUID raw bytes (hex): ${uuidBytes.toString('hex')}`);
 
         // Convert 16 bytes to UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
         const hex = uuidBytes.toString('hex');
