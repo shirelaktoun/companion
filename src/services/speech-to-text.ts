@@ -36,6 +36,7 @@ export class SpeechToTextService extends EventEmitter {
       this.logger.info(`Starting transcription for channel ${channelId}`);
 
       // Create live transcription connection
+      // AudioSocket sends SLIN format (16-bit signed linear PCM)
       const connection = this.deepgramClient.listen.live({
         model: 'nova-2',
         language: 'en-US',
@@ -43,14 +44,14 @@ export class SpeechToTextService extends EventEmitter {
         interim_results: true,
         utterance_end_ms: 1000,
         vad_events: true,
-        encoding: 'mulaw',
+        encoding: 'linear16',  // SLIN = 16-bit signed linear PCM
         sample_rate: 8000,
         channels: 1
       });
 
       // Handle transcription events
       connection.on(LiveTranscriptionEvents.Open, () => {
-        this.logger.debug(`Transcription connection opened for channel ${channelId}`);
+        this.logger.info(`[STT] Transcription connection opened for channel ${channelId}`);
       });
 
       connection.on(LiveTranscriptionEvents.Transcript, (data: any) => {
@@ -59,7 +60,7 @@ export class SpeechToTextService extends EventEmitter {
         if (transcript && transcript.trim().length > 0) {
           const isFinal = data.is_final;
 
-          this.logger.debug(`Transcript (${isFinal ? 'final' : 'interim'}) for ${channelId}: ${transcript}`);
+          this.logger.info(`[STT] Transcript (${isFinal ? 'final' : 'interim'}) for ${channelId}: "${transcript}"`);
 
           // Emit transcript event
           this.emit('transcript', {
@@ -72,17 +73,17 @@ export class SpeechToTextService extends EventEmitter {
       });
 
       connection.on(LiveTranscriptionEvents.UtteranceEnd, () => {
-        this.logger.debug(`Utterance end detected for channel ${channelId}`);
+        this.logger.info(`[STT] Utterance end detected for channel ${channelId}`);
         this.emit('utterance-end', { channelId });
       });
 
       connection.on(LiveTranscriptionEvents.SpeechStarted, () => {
-        this.logger.debug(`Speech started for channel ${channelId}`);
+        this.logger.info(`[STT] Speech started for channel ${channelId}`);
         this.emit('speech-started', { channelId });
       });
 
       connection.on(LiveTranscriptionEvents.Error, (error: any) => {
-        this.logger.error(`Transcription error for channel ${channelId}:`, error);
+        this.logger.error(`[STT] Transcription error for channel ${channelId}:`, error);
         this.emit('error', { channelId, error });
       });
 
