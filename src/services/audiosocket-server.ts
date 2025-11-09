@@ -58,9 +58,15 @@ export class AudioSocketServer extends EventEmitter {
       buffer = Buffer.concat([buffer, data]);
 
       // First, read the UUID (16 bytes)
+      // AudioSocket sends UUID as 16 raw bytes, we need to format it properly
       if (!uuidReceived && buffer.length >= 16) {
-        callId = buffer.slice(0, 16).toString('hex');
+        const uuidBytes = buffer.slice(0, 16);
         buffer = buffer.slice(16);
+
+        // Convert 16 bytes to UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+        const hex = uuidBytes.toString('hex');
+        callId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+
         uuidReceived = true;
 
         this.logger.debug(`AudioSocket UUID received: ${callId}`);
