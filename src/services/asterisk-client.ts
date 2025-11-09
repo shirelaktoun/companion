@@ -3,6 +3,7 @@ import { EventEmitter } from 'events';
 import { AsteriskConfig } from '../types';
 import { Logger } from 'winston';
 import axios from 'axios';
+import { v4 as uuidv4 } from 'uuid';
 
 /**
  * Asterisk ARI Client for managing telephony connections
@@ -225,9 +226,9 @@ export class AsteriskClient extends EventEmitter {
 
   /**
    * Start snooping on a channel to capture audio
-   * Returns the snoop channel ID
+   * Returns the snoop channel ID and AudioSocket UUID
    */
-  async startSnoop(channelId: string): Promise<string> {
+  async startSnoop(channelId: string): Promise<{ snoopChannelId: string; audioSocketUuid: string }> {
     if (!this.client) {
       throw new Error('Not connected to Asterisk');
     }
@@ -243,9 +244,9 @@ export class AsteriskClient extends EventEmitter {
 
       this.logger.debug(`Creating snoop channel on ${channelId}...`);
 
-      // Generate UUID for AudioSocket connection
-      // This will be used to identify the audio stream
-      const audioSocketUuid = channelId.replace(/\./g, '').replace(/-/g, '');
+      // Generate proper UUID for AudioSocket connection
+      // AudioSocket() application requires valid UUID format (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
+      const audioSocketUuid = uuidv4();
 
       // POST /ari/channels/{channelId}/snoop
       const snoopResponse = await axios.post(
@@ -284,7 +285,7 @@ export class AsteriskClient extends EventEmitter {
 
       this.logger.info(`Snoop channel sent to AudioSocket dialplan with UUID: ${audioSocketUuid}`);
 
-      return snoopChannelId;
+      return { snoopChannelId, audioSocketUuid };
     } catch (error) {
       this.logger.error(`Error starting snoop on channel ${channelId}:`, error);
       throw error;
