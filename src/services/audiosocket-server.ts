@@ -119,12 +119,15 @@ export class AudioSocketServer extends EventEmitter {
         const audioData = buffer.slice(3, 3 + length);
         buffer = buffer.slice(3 + length);
 
-        // Kind 0x00 = audio frame, 0x01 = hangup
-        if (kind === 0x00 && callId) {
+        // AudioSocket frame types:
+        // 0x00 = silence/null frame
+        // 0x10 (16) = audio frame (SLIN - signed linear 16-bit)
+        // 0x01 = hangup
+        if ((kind === 0x00 || kind === 0x10) && callId) {
           frameCount++;
           if (frameCount % 50 === 1) {
             // Log every 50th frame to avoid spam (50 frames = ~1 second of audio)
-            this.logger.debug(`AudioSocket audio frame for ${callId}: ${audioData.length} bytes (frame ${frameCount})`);
+            this.logger.info(`AudioSocket audio frame for ${callId}: kind=${kind}, ${audioData.length} bytes (frame ${frameCount})`);
           }
 
           // Emit audio data event
@@ -135,6 +138,8 @@ export class AudioSocketServer extends EventEmitter {
         } else if (kind === 0x01) {
           this.logger.debug(`AudioSocket hangup received for ${callId}`);
           this.emit('hangup', { callId });
+        } else {
+          this.logger.warn(`Unknown AudioSocket frame kind: ${kind} (length=${length})`);
         }
       }
     });
