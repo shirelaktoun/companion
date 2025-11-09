@@ -33,7 +33,7 @@ export function loadConfig(): AppConfig {
     },
     ai: {
       apiKey: process.env.ANTHROPIC_API_KEY!,
-      model: process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20240620',
+      model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5',
       maxTokens: parseInt(process.env.MAX_TOKENS || '1024', 10)
     },
     speech: {
