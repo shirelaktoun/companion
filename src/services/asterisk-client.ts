@@ -254,7 +254,7 @@ export class AsteriskClient extends EventEmitter {
         {},
         {
           params: {
-            spy: 'in',  // Capture audio from caller only
+            spy: 'out',  // Capture audio from caller (out = from endpoint to Asterisk)
             whisper: 'none',  // Don't whisper anything back
             app: this.config.appName,  // Snoop enters Stasis (will be filtered in StasisStart handler)
             appArgs: audioSocketUuid  // Pass UUID as app arg
