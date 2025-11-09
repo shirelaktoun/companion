@@ -54,6 +54,7 @@ export class AudioSocketServer extends EventEmitter {
     let callId: string | null = null;
     let buffer = Buffer.alloc(0);
     let uuidReceived = false;
+    let frameCount = 0;
 
     socket.on('data', (data: Buffer) => {
       buffer = Buffer.concat([buffer, data]);
@@ -105,6 +106,12 @@ export class AudioSocketServer extends EventEmitter {
 
         // Kind 0x00 = audio frame, 0x01 = hangup
         if (kind === 0x00 && callId) {
+          frameCount++;
+          if (frameCount % 50 === 1) {
+            // Log every 50th frame to avoid spam (50 frames = ~1 second of audio)
+            this.logger.debug(`AudioSocket audio frame for ${callId}: ${audioData.length} bytes (frame ${frameCount})`);
+          }
+
           // Emit audio data event
           this.emit('audio', {
             callId,
