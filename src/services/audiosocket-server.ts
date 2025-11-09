@@ -17,6 +17,7 @@ export class AudioSocketServer extends EventEmitter {
   private logger: Logger;
   private port: number;
   private connections: Map<string, net.Socket> = new Map();
+  private silenceIntervals: Map<string, NodeJS.Timeout> = new Map();
 
   constructor(port: number, logger: Logger) {
     super();
@@ -63,17 +64,24 @@ export class AudioSocketServer extends EventEmitter {
         const uuidBytes = buffer.slice(0, 16);
         buffer = buffer.slice(16);
 
+        // Log raw bytes for debugging
+        this.logger.debug(`AudioSocket received 16 raw bytes (hex): ${uuidBytes.toString('hex')}`);
+
         // Convert 16 bytes to UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
         const hex = uuidBytes.toString('hex');
         callId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 
         uuidReceived = true;
 
-        this.logger.debug(`AudioSocket UUID received: ${callId}`);
+        this.logger.info(`AudioSocket connection from snoop channel: ${callId}`);
         this.connections.set(callId, socket);
 
         // Emit connection event
         this.emit('connection', { callId });
+
+        // Send silence frames back to keep connection alive
+        // Asterisk expects bidirectional audio
+        this.startSilenceFrames(callId, socket);
       }
 
       // Process audio frames
@@ -107,7 +115,8 @@ export class AudioSocketServer extends EventEmitter {
 
     socket.on('end', () => {
       if (callId) {
-        this.logger.debug(`AudioSocket connection ended for ${callId}`);
+        this.logger.info(`AudioSocket connection ended: ${callId}`);
+        this.stopSilenceFrames(callId);
         this.connections.delete(callId);
         this.emit('end', { callId });
       }
@@ -116,6 +125,7 @@ export class AudioSocketServer extends EventEmitter {
     socket.on('error', (error) => {
       this.logger.error(`AudioSocket connection error for ${callId}:`, error);
       if (callId) {
+        this.stopSilenceFrames(callId);
         this.connections.delete(callId);
       }
     });
@@ -146,9 +156,50 @@ export class AudioSocketServer extends EventEmitter {
   }
 
   /**
+   * Start sending silence frames to keep the AudioSocket connection alive
+   * Asterisk expects bidirectional audio
+   */
+  private startSilenceFrames(callId: string, socket: net.Socket): void {
+    // Send silence frames every 20ms (50 frames per second)
+    // Silence in mulaw is 0xFF
+    const silenceData = Buffer.alloc(160, 0xFF); // 160 bytes = 20ms of 8kHz mulaw audio
+
+    const interval = setInterval(() => {
+      try {
+        const header = Buffer.alloc(3);
+        header.writeUInt8(0x00, 0); // Kind: audio
+        header.writeUInt16BE(silenceData.length, 1); // Length
+
+        const frame = Buffer.concat([header, silenceData]);
+        socket.write(frame);
+      } catch (error) {
+        this.logger.error(`Error sending silence frame to ${callId}:`, error);
+        clearInterval(interval);
+        this.silenceIntervals.delete(callId);
+      }
+    }, 20); // Every 20ms
+
+    this.silenceIntervals.set(callId, interval);
+    this.logger.debug(`Started sending silence frames to ${callId}`);
+  }
+
+  /**
+   * Stop sending silence frames
+   */
+  private stopSilenceFrames(callId: string): void {
+    const interval = this.silenceIntervals.get(callId);
+    if (interval) {
+      clearInterval(interval);
+      this.silenceIntervals.delete(callId);
+      this.logger.debug(`Stopped sending silence frames to ${callId}`);
+    }
+  }
+
+  /**
    * Close a specific AudioSocket connection
    */
   closeConnection(callId: string): void {
+    this.stopSilenceFrames(callId);
     const socket = this.connections.get(callId);
 
     if (socket) {
