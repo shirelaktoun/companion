@@ -412,8 +412,17 @@ export class CallManager extends EventEmitter {
     }
 
     // If we have a mapping, forward audio to STT
-    if (channelId && this.sttService.isActive(channelId)) {
-      this.sttService.sendAudio(channelId, audioData);
+    if (channelId) {
+      const isActive = this.sttService.isActive(channelId);
+      this.logger.debug(`Audio received for ${channelId}, STT active: ${isActive}, audio size: ${audioData.length} bytes`);
+
+      if (isActive) {
+        this.sttService.sendAudio(channelId, audioData);
+      } else {
+        this.logger.warn(`STT not active for channel ${channelId}, cannot send audio`);
+      }
+    } else {
+      this.logger.warn(`No channel mapping found for AudioSocket ${callId}`);
     }
   }
 
