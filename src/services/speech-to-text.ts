@@ -42,7 +42,7 @@ export class SpeechToTextService extends EventEmitter {
         language: 'en-US',
         smart_format: true,
         interim_results: true,
-        utterance_end_ms: 1000,
+        utterance_end_ms: 750,  // Reduced from 1000ms to improve latency
         vad_events: true,
         encoding: 'linear16',  // SLIN = 16-bit signed linear PCM
         sample_rate: 8000,

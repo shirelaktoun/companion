@@ -34,7 +34,7 @@ export function loadConfig(): AppConfig {
     ai: {
       apiKey: process.env.ANTHROPIC_API_KEY!,
       model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5',
-      maxTokens: parseInt(process.env.MAX_TOKENS || '1024', 10)
+      maxTokens: parseInt(process.env.MAX_TOKENS || '400', 10)  // Reduced from 1024 for lower latency
     },
     speech: {
       deepgramApiKey: process.env.DEEPGRAM_API_KEY,
