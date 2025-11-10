@@ -104,8 +104,6 @@ export class CallManager extends EventEmitter {
     callerName: string;
   }): Promise<void> {
     try {
-      this.logger.info(`Handling answered call for channel ${data.channelId}`);
-
       // Create call state
       const callState: CallState = {
         channelId: data.channelId,
@@ -129,8 +127,6 @@ export class CallManager extends EventEmitter {
       // Map AudioSocket UUID to main channel
       this.audioSocketToChannel.set(audioSocketUuid, data.channelId);
       this.channelToAudioSocket.set(data.channelId, audioSocketUuid);
-
-      this.logger.info(`AudioSocket UUID ${audioSocketUuid} mapped to main channel ${data.channelId}`);
 
       // Generate and speak greeting
       const greeting = await this.aiAgent.generateResponse([]);
@@ -193,7 +189,7 @@ export class CallManager extends EventEmitter {
       return;
     }
 
-    this.logger.info(`User finished speaking on ${channelId}: "${transcript}"`);
+    // User transcript already logged by STT service
 
     // Clear transcript buffer
     this.transcriptBuffers.set(channelId, '');
@@ -288,18 +284,16 @@ export class CallManager extends EventEmitter {
    */
   private async speakToChannel(channelId: string, text: string): Promise<void> {
     try {
-      this.logger.info(`Speaking to ${channelId}: "${text}"`);
+      // Log AI responses (shorter format)
+      this.logger.info(`[AI] ${text}`);
 
       // Generate audio file in audio cache directory
       // Returns just the filename without extension
       const audioFilename = await this.ttsService.synthesize(text, channelId);
 
-      this.logger.debug(`Audio file created: ${audioFilename}`);
-
       // Use sound: prefix with ai-companion subdirectory for Asterisk playback
       // The audio-cache directory is symlinked to /var/lib/asterisk/sounds/en/ai-companion
       const soundUri = `sound:ai-companion/${audioFilename}`;
-      this.logger.debug(`Playing sound URI: ${soundUri}`);
 
       // Play audio through Asterisk using sound: prefix
       await this.asteriskClient.playAudio(channelId, soundUri);
@@ -352,7 +346,7 @@ export class CallManager extends EventEmitter {
         }
       };
 
-      this.logger.info(`Sending webhook notification to: ${this.webhookUrl}`);
+      this.logger.info(`Sending webhook notification`);
 
       const response = await axios.post(this.webhookUrl, payload, {
         headers: {

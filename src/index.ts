@@ -25,21 +25,8 @@ async function main() {
 
     // Initialize logger
     logger = createLogger(config.logLevel, config.logFile);
-    logger.info('='.repeat(60));
-    logger.info('AI Companion PBX Agent Starting...');
-    logger.info('='.repeat(60));
-
-    // Log configuration (without sensitive data)
-    logger.info('Configuration:');
-    logger.info(`  Asterisk: ${config.asterisk.host}:${config.asterisk.port}`);
-    logger.info(`  Application: ${config.asterisk.appName}`);
-    logger.info(`  Agent Name: ${config.agent.name}`);
-    logger.info(`  AI Model: ${config.ai.model}`);
-    logger.info(`  Log Level: ${config.logLevel}`);
-    logger.info(`  Webhook: ${config.webhookUrl ? 'Configured' : 'Not configured'}`);
-
-    // Initialize services
-    logger.info('Initializing services...');
+    logger.info('AI Companion starting...');
+    logger.info(`Asterisk: ${config.asterisk.host}:${config.asterisk.port} | Agent: ${config.agent.name} | Webhook: ${config.webhookUrl ? 'Yes' : 'No'}`);
 
     // Initialize Asterisk client
     asteriskClient = new AsteriskClient(config.asterisk, logger);
@@ -72,13 +59,10 @@ async function main() {
     );
 
     // Initialize AudioSocket Server for real-time audio capture
-    logger.info('Starting AudioSocket server...');
     const audioSocketServer = new AudioSocketServer(5039, logger);
     await audioSocketServer.start();
 
     // Initialize Call Manager
-    // Note: Audio files are now saved directly to Asterisk's sounds directory
-    // and played using the sound: prefix, so no HTTP server is needed
     callManager = new CallManager(
       asteriskClient,
       sttService,
@@ -90,31 +74,15 @@ async function main() {
       config.webhookUrl
     );
 
-    // Set up call manager events
-    callManager.on('call-ended', (data) => {
-      logger.info(`Call ended: ${data.channelId} (duration: ${data.duration}s, messages: ${data.messageCount})`);
-    });
-
     // Connect to Asterisk
-    logger.info('Connecting to Asterisk...');
     await asteriskClient.connect();
 
-    logger.info('='.repeat(60));
-    logger.info('AI Companion Agent is ready and waiting for calls!');
-    logger.info('='.repeat(60));
+    logger.info('AI Companion ready for calls');
 
     // Set up periodic cleanup of old audio files
     setInterval(async () => {
       await ttsService.cleanupOldFiles(60);
     }, 300000); // Every 5 minutes
-
-    // Log status periodically
-    setInterval(() => {
-      const activeCall = callManager.getActiveCallCount();
-      if (activeCall > 0) {
-        logger.info(`Status: ${activeCall} active call(s)`);
-      }
-    }, 60000); // Every minute
 
   } catch (error) {
     if (logger) {

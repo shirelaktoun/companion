@@ -60,7 +60,10 @@ export class SpeechToTextService extends EventEmitter {
         if (transcript && transcript.trim().length > 0) {
           const isFinal = data.is_final;
 
-          this.logger.info(`[STT] Transcript (${isFinal ? 'final' : 'interim'}) for ${channelId}: "${transcript}"`);
+          // Only log final transcripts to reduce log verbosity
+          if (isFinal) {
+            this.logger.info(`[STT] ${channelId}: "${transcript}"`);
+          }
 
           // Emit transcript event
           this.emit('transcript', {
@@ -73,12 +76,12 @@ export class SpeechToTextService extends EventEmitter {
       });
 
       connection.on(LiveTranscriptionEvents.UtteranceEnd, () => {
-        this.logger.info(`[STT] Utterance end detected for channel ${channelId}`);
+        // Don't log utterance end - too verbose
         this.emit('utterance-end', { channelId });
       });
 
       connection.on(LiveTranscriptionEvents.SpeechStarted, () => {
-        this.logger.info(`[STT] Speech started for channel ${channelId}`);
+        // Don't log speech start - too verbose
         this.emit('speech-started', { channelId });
       });
 

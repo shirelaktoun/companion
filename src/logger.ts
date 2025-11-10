@@ -1,9 +1,10 @@
 import winston from 'winston';
+import DailyRotateFile from 'winston-daily-rotate-file';
 import path from 'path';
 import fs from 'fs';
 
 /**
- * Create and configure Winston logger
+ * Create and configure Winston logger with daily rotation
  */
 export function createLogger(logLevel: string, logFile: string): winston.Logger {
   // Ensure log directory exists
@@ -38,16 +39,19 @@ export function createLogger(logLevel: string, logFile: string): winston.Logger 
     })
   ];
 
-  // Add file transport if we can write to the log file
+  // Add daily rotating file transport with automatic cleanup
   try {
     transports.push(
-      new winston.transports.File({
-        filename: logFile,
+      new DailyRotateFile({
+        filename: logFile.replace('.log', '-%DATE%.log'),
+        datePattern: 'YYYY-MM-DD',
+        maxFiles: '3d',  // Keep logs for 3 days
+        maxSize: '20m',  // Rotate when file reaches 20MB
         format
       })
     );
   } catch (err) {
-    console.warn(`Could not create file logger at ${logFile}, using console only`);
+    console.warn(`Could not create rotating file logger at ${logFile}, using console only`);
   }
 
   return winston.createLogger({
