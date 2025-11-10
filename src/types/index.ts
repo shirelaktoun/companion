@@ -17,9 +17,11 @@ export interface AIConfig {
 }
 
 export interface SpeechConfig {
+  sttProvider: 'deepgram' | 'google';
   deepgramApiKey?: string;
+  googleSttCredentials?: string;
   ttsProvider: 'google' | 'openai';
-  googleCredentials?: string;
+  googleTtsCredentials?: string;
   openaiApiKey?: string;
   voiceName?: string;
   languageCode?: string;

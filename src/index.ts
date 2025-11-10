@@ -33,7 +33,11 @@ async function main() {
 
     // Initialize Speech-to-Text
     const sttService = new SpeechToTextService(
-      config.speech.deepgramApiKey || '',
+      config.speech.sttProvider,
+      {
+        deepgramApiKey: config.speech.deepgramApiKey,
+        googleCredentials: config.speech.googleSttCredentials
+      },
       logger
     );
 
@@ -41,7 +45,7 @@ async function main() {
     const ttsService = new TextToSpeechService(
       config.speech.ttsProvider,
       {
-        googleCredentials: config.speech.googleCredentials,
+        googleCredentials: config.speech.googleTtsCredentials,
         openaiApiKey: config.speech.openaiApiKey,
         voiceName: config.speech.voiceName,
         languageCode: config.speech.languageCode

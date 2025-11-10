@@ -37,9 +37,11 @@ export function loadConfig(): AppConfig {
       maxTokens: parseInt(process.env.MAX_TOKENS || '400', 10)  // Reduced from 1024 for lower latency
     },
     speech: {
+      sttProvider: (process.env.STT_PROVIDER || 'deepgram') as 'deepgram' | 'google',
       deepgramApiKey: process.env.DEEPGRAM_API_KEY,
+      googleSttCredentials: process.env.GOOGLE_STT_CREDENTIALS,
       ttsProvider: (process.env.TTS_PROVIDER || 'openai') as 'google' | 'openai',
-      googleCredentials: process.env.GOOGLE_APPLICATION_CREDENTIALS,
+      googleTtsCredentials: process.env.GOOGLE_TTS_CREDENTIALS,
       openaiApiKey: process.env.OPENAI_API_KEY,
       voiceName: process.env.TTS_VOICE_NAME || 'nova',
       languageCode: process.env.TTS_LANGUAGE_CODE || 'en-US'
