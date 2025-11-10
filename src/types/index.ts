@@ -40,6 +40,7 @@ export interface AppConfig {
   logLevel: string;
   logFile: string;
   httpPort: number;
+  webhookUrl: string;
 }
 
 export interface CallState {

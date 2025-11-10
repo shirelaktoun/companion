@@ -52,6 +52,7 @@ export function loadConfig(): AppConfig {
     },
     logLevel: process.env.LOG_LEVEL || 'info',
     logFile: process.env.LOG_FILE || '/var/log/ai-companion/companion.log',
-    httpPort: parseInt(process.env.HTTP_PORT || '3000', 10)
+    httpPort: parseInt(process.env.HTTP_PORT || '3000', 10),
+    webhookUrl: process.env.WEBHOOK_URL || ''  // Make.com webhook for call analysis
   };
 }

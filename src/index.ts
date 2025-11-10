@@ -36,6 +36,7 @@ async function main() {
     logger.info(`  Agent Name: ${config.agent.name}`);
     logger.info(`  AI Model: ${config.ai.model}`);
     logger.info(`  Log Level: ${config.logLevel}`);
+    logger.info(`  Webhook: ${config.webhookUrl ? 'Configured' : 'Not configured'}`);
 
     // Initialize services
     logger.info('Initializing services...');
@@ -85,7 +86,8 @@ async function main() {
       aiAgent,
       config.agent,
       logger,
-      audioSocketServer
+      audioSocketServer,
+      config.webhookUrl
     );
 
     // Set up call manager events

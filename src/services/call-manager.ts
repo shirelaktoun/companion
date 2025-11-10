@@ -6,6 +6,7 @@ import { SpeechToTextService } from './speech-to-text';
 import { TextToSpeechService } from './text-to-speech';
 import { AIAgent } from './ai-agent';
 import { AudioSocketServer } from './audiosocket-server';
+import axios from 'axios';
 import os from 'os';
 
 /**
@@ -19,6 +20,7 @@ export class CallManager extends EventEmitter {
   private logger: Logger;
   private config: AgentConfig;
   private audioSocketServer: AudioSocketServer;
+  private webhookUrl: string;
 
   private activeCalls: Map<string, CallState> = new Map();
   private silenceTimers: Map<string, NodeJS.Timeout> = new Map();
@@ -33,7 +35,8 @@ export class CallManager extends EventEmitter {
     aiAgent: AIAgent,
     config: AgentConfig,
     logger: Logger,
-    audioSocketServer: AudioSocketServer
+    audioSocketServer: AudioSocketServer,
+    webhookUrl: string
   ) {
     super();
     this.asteriskClient = asteriskClient;
@@ -43,6 +46,7 @@ export class CallManager extends EventEmitter {
     this.config = config;
     this.logger = logger;
     this.audioSocketServer = audioSocketServer;
+    this.webhookUrl = webhookUrl;
 
     this.setupEventHandlers();
   }
@@ -313,6 +317,60 @@ export class CallManager extends EventEmitter {
 
 
   /**
+   * Send webhook notification with call analysis
+   */
+  private async sendWebhookNotification(
+    callState: CallState,
+    duration: number,
+    analysis: { concernLevel: string; suggestions: string[] }
+  ): Promise<void> {
+    if (!this.webhookUrl) {
+      this.logger.debug('No webhook URL configured, skipping webhook notification');
+      return;
+    }
+
+    try {
+      const payload = {
+        timestamp: new Date().toISOString(),
+        call: {
+          channelId: callState.channelId,
+          callerId: callState.callerId,
+          callerName: callState.callerName,
+          startTime: callState.startTime.toISOString(),
+          endTime: new Date().toISOString(),
+          duration: Math.round(duration),
+          messageCount: callState.conversationHistory.length
+        },
+        conversation: callState.conversationHistory.map(msg => ({
+          role: msg.role,
+          content: msg.content,
+          timestamp: msg.timestamp.toISOString()
+        })),
+        analysis: {
+          concernLevel: analysis.concernLevel,
+          suggestions: analysis.suggestions
+        }
+      };
+
+      this.logger.info(`Sending webhook notification to: ${this.webhookUrl}`);
+
+      const response = await axios.post(this.webhookUrl, payload, {
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000 // 10 second timeout
+      });
+
+      this.logger.info(`Webhook sent successfully: ${response.status}`);
+    } catch (error: any) {
+      this.logger.error(`Error sending webhook notification:`, error.message);
+      if (error.response) {
+        this.logger.error(`Webhook response error: ${error.response.status} - ${JSON.stringify(error.response.data)}`);
+      }
+    }
+  }
+
+  /**
    * Handle call hangup
    */
   private async handleHangup(channelId: string): Promise<void> {
@@ -336,13 +394,23 @@ export class CallManager extends EventEmitter {
     this.logger.info(`  Duration: ${duration.toFixed(0)} seconds`);
     this.logger.info(`  Messages: ${callState.conversationHistory.length}`);
 
-    // Analyze wellbeing (optional)
+    // Analyze wellbeing and send webhook
     try {
       const analysis = await this.aiAgent.analyzeWellbeing(callState.conversationHistory);
+
+      // Log analysis results
+      this.logger.info(`Call analysis for ${callState.callerId}:`);
+      this.logger.info(`  Concern Level: ${analysis.concernLevel}`);
+      if (analysis.suggestions.length > 0) {
+        this.logger.info(`  Suggestions: ${analysis.suggestions.join(', ')}`);
+      }
+
       if (analysis.concernLevel !== 'none') {
         this.logger.warn(`Wellbeing concern (${analysis.concernLevel}) for caller ${callState.callerId}`);
-        this.logger.warn(`Suggestions: ${analysis.suggestions.join(', ')}`);
       }
+
+      // Send webhook notification with full conversation and analysis
+      await this.sendWebhookNotification(callState, duration, analysis);
     } catch (error) {
       this.logger.error('Error analyzing wellbeing:', error);
     }
