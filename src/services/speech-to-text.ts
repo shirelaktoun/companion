@@ -38,11 +38,11 @@ export class SpeechToTextService extends EventEmitter {
       // Create live transcription connection
       // AudioSocket sends SLIN format (16-bit signed linear PCM)
       const connection = this.deepgramClient.listen.live({
-        model: 'nova-3',
+        model: 'nova-2',
         language: 'en-US',
         smart_format: true,
         interim_results: true,
-        utterance_end_ms: 500,  // Reduced from 1000ms for faster responses
+        utterance_end_ms: 1000,
         vad_events: true,
         encoding: 'linear16',  // SLIN = 16-bit signed linear PCM
         sample_rate: 8000,
