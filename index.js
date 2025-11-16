@@ -246,16 +246,29 @@ async function handleFunctionCall(functionCall) {
 
     // Add your function handlers here
     switch (name) {
-        case 'get_time':
+        case 'get_current_time':
             return {
                 time: new Date().toLocaleTimeString(),
-                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                timestamp: new Date().toISOString()
             };
 
-        case 'get_date':
+        case 'get_current_date':
             return {
                 date: new Date().toLocaleDateString(),
-                dayOfWeek: new Date().toLocaleDateString('en-US', { weekday: 'long' })
+                dayOfWeek: new Date().toLocaleDateString('en-US', { weekday: 'long' }),
+                isoDate: new Date().toISOString().split('T')[0]
+            };
+
+        case 'get_weather':
+            // Demo function - in production, call a real weather API
+            const location = args?.location || 'Unknown';
+            return {
+                location: location,
+                temperature: Math.floor(Math.random() * 30) + 10, // Random temp 10-40°C
+                condition: ['Sunny', 'Cloudy', 'Rainy', 'Partly Cloudy'][Math.floor(Math.random() * 4)],
+                humidity: Math.floor(Math.random() * 40) + 40, // 40-80%
+                note: 'This is a demo response. Integrate with a real weather API for actual data.'
             };
 
         default:
@@ -449,6 +462,60 @@ function getClientHTML() {
         .setting-row input[type="range"] {
             flex: 1;
         }
+        .mic-button {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: #007bff;
+            color: white;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            margin: 10px auto;
+            display: block;
+            transition: all 0.3s;
+        }
+        .mic-button:hover {
+            background: #0056b3;
+            transform: scale(1.1);
+        }
+        .mic-button.recording {
+            background: #dc3545;
+            animation: pulse-mic 1s infinite;
+        }
+        @keyframes pulse-mic {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7); }
+            50% { box-shadow: 0 0 0 10px rgba(220, 53, 69, 0); }
+        }
+        .presets-section {
+            margin: 10px 0;
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+        }
+        .preset-btn {
+            padding: 5px 10px;
+            border: 1px solid #007bff;
+            background: white;
+            color: #007bff;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .preset-btn:hover {
+            background: #007bff;
+            color: white;
+        }
+        .preset-btn.active {
+            background: #007bff;
+            color: white;
+        }
+        .export-section {
+            margin-top: 20px;
+            padding: 15px;
+            background: #e9ecef;
+            border-radius: 5px;
+        }
     </style>
 </head>
 <body>
@@ -463,6 +530,32 @@ function getClientHTML() {
         <div class="settings-panel collapsed" id="settingsPanel">
             <h3 onclick="toggleSettings()">⚙️ AI Settings</h3>
             <div class="settings-content">
+                <div class="presets-section">
+                    <strong>Presets:</strong>
+                    <button class="preset-btn" onclick="loadPreset('default')">Default</button>
+                    <button class="preset-btn" onclick="loadPreset('professional')">Professional</button>
+                    <button class="preset-btn" onclick="loadPreset('friendly')">Friendly</button>
+                    <button class="preset-btn" onclick="loadPreset('technical')">Technical</button>
+                    <button class="preset-btn" onclick="loadPreset('customer-service')">Customer Service</button>
+                    <button class="preset-btn" onclick="saveCustomPreset()">💾 Save Custom</button>
+                </div>
+
+                <div class="setting-row">
+                    <label for="languageSelect">Language:</label>
+                    <select id="languageSelect">
+                        <option value="en" selected>English</option>
+                        <option value="es">Spanish (Español)</option>
+                        <option value="fr">French (Français)</option>
+                        <option value="de">German (Deutsch)</option>
+                        <option value="it">Italian (Italiano)</option>
+                        <option value="pt">Portuguese (Português)</option>
+                        <option value="ja">Japanese (日本語)</option>
+                        <option value="zh">Chinese (中文)</option>
+                        <option value="ar">Arabic (العربية)</option>
+                        <option value="hi">Hindi (हिन्दी)</option>
+                    </select>
+                </div>
+
                 <div class="setting-row">
                     <label for="voiceSelect">Voice:</label>
                     <select id="voiceSelect">
@@ -515,8 +608,19 @@ function getClientHTML() {
             <button onclick="sendText()">Send Text</button>
         </div>
 
+        <button class="mic-button" id="micBtn" onclick="toggleMicrophone()" title="Push to talk">
+            🎤
+        </button>
+
         <h3>Conversation</h3>
         <div class="conversation" id="conversation"></div>
+
+        <div class="export-section">
+            <strong>Conversation History:</strong>
+            <button onclick="exportConversation('txt')">📄 Export as TXT</button>
+            <button onclick="exportConversation('json')">📋 Export as JSON</button>
+            <button onclick="clearConversation()">🗑️ Clear History</button>
+        </div>
 
         <h3>System Log</h3>
         <div class="log" id="log"></div>
@@ -533,6 +637,68 @@ function getClientHTML() {
         let isMuted = false;
         let volume = 0.8;
         let gainNode = null;
+
+        // Microphone input setup
+        let mediaRecorder = null;
+        let audioStream = null;
+        let isRecording = false;
+        let recordingChunks = [];
+
+        // Conversation history
+        let conversationHistory = [];
+
+        // Presets database
+        const presets = {
+            'default': {
+                voice: 'shimmer',
+                temperature: 0.8,
+                systemMessage: 'You are a helpful AI assistant. Be concise and friendly.',
+                greetingText: 'Hello! I am your AI companion. How can I help you today?',
+                language: 'en'
+            },
+            'professional': {
+                voice: 'echo',
+                temperature: 0.6,
+                systemMessage: 'You are a professional business assistant. Be formal, concise, and solution-oriented. Provide clear, actionable advice.',
+                greetingText: 'Good day. I am your professional AI assistant. How may I support you with your business needs?',
+                language: 'en'
+            },
+            'friendly': {
+                voice: 'nova',
+                temperature: 0.8,
+                systemMessage: 'You are a friendly companion. Be warm, encouraging, and conversational. Show genuine interest in the user\'s wellbeing.',
+                greetingText: 'Hey there! Great to chat with you. How\'s everything going?',
+                language: 'en'
+            },
+            'technical': {
+                voice: 'onyx',
+                temperature: 0.4,
+                systemMessage: 'You are a technical support specialist. Be precise, thorough, and explain technical concepts clearly. Provide code examples when relevant.',
+                greetingText: 'Hello. I am your technical assistant. What technical issue can I help you resolve?',
+                language: 'en'
+            },
+            'customer-service': {
+                voice: 'shimmer',
+                temperature: 0.7,
+                systemMessage: 'You are a customer service representative. Be empathetic, patient, and always maintain a positive tone. Focus on resolving issues efficiently.',
+                greetingText: 'Hello! Thank you for reaching out. I\'m here to help. What can I assist you with today?',
+                language: 'en'
+            }
+        };
+
+        // Language greetings
+        const languageGreetings = {
+            'en': 'Hello! How can I help you today?',
+            'es': '¡Hola! ¿Cómo puedo ayudarte hoy?',
+            'fr': 'Bonjour! Comment puis-je vous aider aujourd\'hui?',
+            'de': 'Hallo! Wie kann ich Ihnen heute helfen?',
+            'it': 'Ciao! Come posso aiutarti oggi?',
+            'pt': 'Olá! Como posso ajudá-lo hoje?',
+            'ja': 'こんにちは！今日はどのようにお手伝いできますか？',
+            'zh': '你好！我今天能帮你什么？',
+            'ar': 'مرحبا! كيف يمكنني مساعدتك اليوم؟',
+            'hi': 'नमस्ते! मैं आज आपकी कैसे मदद कर सकता हूँ?'
+        };
 
         // Initialize Web Audio API
         function initAudio() {
@@ -655,12 +821,213 @@ function getClientHTML() {
 
         // Get current settings
         function getSettings() {
+            const language = document.getElementById('languageSelect').value;
             return {
                 voice: document.getElementById('voiceSelect').value,
                 temperature: parseInt(document.getElementById('temperatureSlider').value) / 100,
                 systemMessage: document.getElementById('systemMessage').value,
-                greetingText: document.getElementById('greetingText').value
+                greetingText: document.getElementById('greetingText').value,
+                language: language
             };
+        }
+
+        // Load preset
+        function loadPreset(presetName) {
+            const preset = presets[presetName];
+            if (!preset) {
+                // Try to load from localStorage (custom preset)
+                const saved = localStorage.getItem('customPreset');
+                if (saved) {
+                    const customPreset = JSON.parse(saved);
+                    applyPreset(customPreset);
+                    log('✅ Loaded custom preset');
+                }
+                return;
+            }
+
+            applyPreset(preset);
+            log(`✅ Loaded ${presetName} preset`);
+        }
+
+        // Apply preset to form
+        function applyPreset(preset) {
+            document.getElementById('voiceSelect').value = preset.voice;
+            document.getElementById('temperatureSlider').value = preset.temperature * 100;
+            updateTemperatureLabel(preset.temperature * 100);
+            document.getElementById('systemMessage').value = preset.systemMessage;
+            document.getElementById('greetingText').value = preset.greetingText;
+            if (preset.language) {
+                document.getElementById('languageSelect').value = preset.language;
+            }
+        }
+
+        // Save custom preset
+        function saveCustomPreset() {
+            const settings = getSettings();
+            localStorage.setItem('customPreset', JSON.stringify(settings));
+            log('💾 Custom preset saved');
+            alert('Custom preset saved successfully!');
+        }
+
+        // Toggle microphone
+        async function toggleMicrophone() {
+            if (!sessionId) {
+                log('Please start a session first', 'error');
+                return;
+            }
+
+            if (isRecording) {
+                stopRecording();
+            } else {
+                await startRecording();
+            }
+        }
+
+        // Start microphone recording
+        async function startRecording() {
+            try {
+                initAudio();
+
+                // Request microphone access
+                audioStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        channelCount: 1,
+                        sampleRate: 24000,
+                        echoCancellation: true,
+                        noiseSuppression: true
+                    }
+                });
+
+                // Create MediaRecorder for audio streaming
+                mediaRecorder = new MediaRecorder(audioStream, {
+                    mimeType: 'audio/webm;codecs=opus'
+                });
+
+                mediaRecorder.ondataavailable = async (event) => {
+                    if (event.data.size > 0) {
+                        // Convert to PCM16 and send to AI
+                        const arrayBuffer = await event.data.arrayBuffer();
+                        const audioData = await convertToPCM16(arrayBuffer);
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({
+                                type: 'audio.append',
+                                audio: audioData
+                            }));
+                        }
+                    }
+                };
+
+                // Capture audio in chunks every 100ms
+                mediaRecorder.start(100);
+                isRecording = true;
+
+                document.getElementById('micBtn').classList.add('recording');
+                log('🎤 Microphone recording started');
+
+            } catch (error) {
+                console.error('Microphone error:', error);
+                log('❌ Microphone access denied or error: ' + error.message, 'error');
+            }
+        }
+
+        // Stop microphone recording
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+
+            if (audioStream) {
+                audioStream.getTracks().forEach(track => track.stop());
+                audioStream = null;
+            }
+
+            isRecording = false;
+            document.getElementById('micBtn').classList.remove('recording');
+            log('🔇 Microphone recording stopped');
+        }
+
+        // Convert WebM audio to PCM16 base64
+        async function convertToPCM16(arrayBuffer) {
+            // Decode WebM to AudioBuffer
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+            // Resample to 24kHz if needed
+            const sampleRate = 24000;
+            let channelData = audioBuffer.getChannelData(0);
+
+            if (audioBuffer.sampleRate !== sampleRate) {
+                // Simple resampling (you could use a library for better quality)
+                const ratio = audioBuffer.sampleRate / sampleRate;
+                const newLength = Math.floor(channelData.length / ratio);
+                const resampled = new Float32Array(newLength);
+
+                for (let i = 0; i < newLength; i++) {
+                    const srcIndex = Math.floor(i * ratio);
+                    resampled[i] = channelData[srcIndex];
+                }
+                channelData = resampled;
+            }
+
+            // Convert Float32 to Int16 (PCM16)
+            const pcm16 = new Int16Array(channelData.length);
+            for (let i = 0; i < channelData.length; i++) {
+                const s = Math.max(-1, Math.min(1, channelData[i]));
+                pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+            }
+
+            // Convert to base64
+            const bytes = new Uint8Array(pcm16.buffer);
+            let binary = '';
+            for (let i = 0; i < bytes.length; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return btoa(binary);
+        }
+
+        // Export conversation
+        function exportConversation(format) {
+            if (conversationHistory.length === 0) {
+                alert('No conversation to export');
+                return;
+            }
+
+            let content, filename, mimeType;
+
+            if (format === 'txt') {
+                content = conversationHistory.map(msg =>
+                    `[${msg.timestamp}] ${msg.sender === 'user' ? 'You' : 'AI'}: ${msg.text}`
+                ).join('\n\n');
+                filename = `conversation_${Date.now()}.txt`;
+                mimeType = 'text/plain';
+            } else if (format === 'json') {
+                content = JSON.stringify(conversationHistory, null, 2);
+                filename = `conversation_${Date.now()}.json`;
+                mimeType = 'application/json';
+            }
+
+            // Download file
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            log(`📥 Exported conversation as ${format.toUpperCase()}`);
+        }
+
+        // Clear conversation
+        function clearConversation() {
+            if (!confirm('Are you sure you want to clear the conversation history?')) {
+                return;
+            }
+
+            conversationHistory = [];
+            document.getElementById('conversation').innerHTML = '';
+            log('🗑️ Conversation history cleared');
         }
 
         function connect() {
@@ -740,7 +1107,7 @@ function getClientHTML() {
                 return;
             }
 
-            // Clear previous conversation
+            // Clear previous conversation (but keep history)
             document.getElementById('conversation').innerHTML = '';
 
             // Clear audio queue
@@ -748,11 +1115,23 @@ function getClientHTML() {
             isPlaying = false;
             document.getElementById('audioIndicator').classList.remove('speaking');
 
+            // Stop any recording
+            if (isRecording) {
+                stopRecording();
+            }
+
             // Initialize audio on user interaction (required by browsers)
             initAudio();
 
             // Get custom settings
             const settings = getSettings();
+
+            // Add language instruction to system message
+            let systemMessage = settings.systemMessage;
+            if (settings.language !== 'en') {
+                const languageName = document.getElementById('languageSelect').selectedOptions[0].text.split('(')[0].trim();
+                systemMessage += `\n\nIMPORTANT: Respond in ${languageName} language.`;
+            }
 
             ws.send(JSON.stringify({
                 type: 'session.start',
@@ -760,12 +1139,50 @@ function getClientHTML() {
                 greetingText: settings.greetingText,
                 voice: settings.voice,
                 temperature: settings.temperature,
-                systemMessage: settings.systemMessage
+                systemMessage: systemMessage,
+                tools: [
+                    {
+                        type: 'function',
+                        name: 'get_current_time',
+                        description: 'Get the current time',
+                        parameters: {
+                            type: 'object',
+                            properties: {},
+                            required: []
+                        }
+                    },
+                    {
+                        type: 'function',
+                        name: 'get_current_date',
+                        description: 'Get the current date',
+                        parameters: {
+                            type: 'object',
+                            properties: {},
+                            required: []
+                        }
+                    },
+                    {
+                        type: 'function',
+                        name: 'get_weather',
+                        description: 'Get the weather for a location (demo function)',
+                        parameters: {
+                            type: 'object',
+                            properties: {
+                                location: {
+                                    type: 'string',
+                                    description: 'The city and state, e.g. San Francisco, CA'
+                                }
+                            },
+                            required: ['location']
+                        }
+                    }
+                ]
             }));
 
             log('Starting AI session with custom settings...');
             log(`  Voice: ${settings.voice}`);
             log(`  Temperature: ${settings.temperature}`);
+            log(`  Language: ${settings.language}`);
         }
 
         function endSession() {
@@ -812,6 +1229,13 @@ function getClientHTML() {
         }
 
         function addMessage(sender, text) {
+            // Add to conversation history
+            conversationHistory.push({
+                sender,
+                text,
+                timestamp: new Date().toISOString()
+            });
+
             const conversationDiv = document.getElementById('conversation');
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message ' + sender;
