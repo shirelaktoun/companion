@@ -53,6 +53,55 @@ aiAgent.on('audio-delta', ({ sessionId, audio }) => {
     }
 });
 
+aiAgent.on('message', ({ sessionId, message }) => {
+    const client = wsClients.get(sessionId);
+    if (!client || client.readyState !== 1) return;
+
+    // Forward text transcripts and deltas
+    if (message.type === 'response.audio_transcript.delta' && message.delta) {
+        client.send(JSON.stringify({
+            type: 'transcript.delta',
+            sessionId,
+            text: message.delta
+        }));
+    }
+
+    if (message.type === 'response.audio_transcript.done' && message.transcript) {
+        client.send(JSON.stringify({
+            type: 'transcript.done',
+            sessionId,
+            text: message.transcript
+        }));
+    }
+
+    // Forward response.done with full details
+    if (message.type === 'response.done' && message.response) {
+        // Extract text from response
+        let responseText = '';
+        if (message.response.output) {
+            message.response.output.forEach(item => {
+                if (item.type === 'message' && item.content) {
+                    item.content.forEach(content => {
+                        if (content.type === 'text' && content.text) {
+                            responseText += content.text;
+                        } else if (content.type === 'audio' && content.transcript) {
+                            responseText += content.transcript;
+                        }
+                    });
+                }
+            });
+        }
+
+        if (responseText) {
+            client.send(JSON.stringify({
+                type: 'ai.response',
+                sessionId,
+                text: responseText
+            }));
+        }
+    }
+});
+
 aiAgent.on('session-ready', ({ sessionId, openaiSessionId }) => {
     console.log(`✅ Session ready: ${sessionId} (OpenAI: ${openaiSessionId})`);
     const client = wsClients.get(sessionId);
@@ -281,6 +330,36 @@ function getClientHTML() {
             border-left: 3px solid #007bff;
             padding-left: 10px;
         }
+        .conversation {
+            margin: 20px 0;
+            padding: 15px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .message {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .message.user {
+            background: #007bff;
+            color: white;
+            margin-left: 20%;
+            text-align: right;
+        }
+        .message.ai {
+            background: #e9ecef;
+            color: #333;
+            margin-right: 20%;
+        }
+        .message .label {
+            font-weight: bold;
+            font-size: 12px;
+            margin-bottom: 5px;
+        }
         input[type="text"] {
             width: calc(100% - 100px);
             padding: 10px;
@@ -309,6 +388,10 @@ function getClientHTML() {
             <button onclick="sendText()">Send Text</button>
         </div>
 
+        <h3>Conversation</h3>
+        <div class="conversation" id="conversation"></div>
+
+        <h3>System Log</h3>
         <div class="log" id="log"></div>
     </div>
 
@@ -329,15 +412,28 @@ function getClientHTML() {
 
                 switch (data.type) {
                     case 'session.ready':
-                        log('AI session ready');
+                        log('✅ AI session ready');
                         sessionId = data.sessionId;
                         document.getElementById('session').textContent = sessionId;
                         document.getElementById('startBtn').disabled = true;
                         document.getElementById('endBtn').disabled = false;
                         break;
 
+                    case 'ai.response':
+                        log('🤖 AI: ' + data.text);
+                        addMessage('ai', data.text);
+                        break;
+
+                    case 'transcript.delta':
+                        // Real-time transcript streaming (optional)
+                        break;
+
+                    case 'transcript.done':
+                        log('📝 Transcript: ' + data.text);
+                        break;
+
                     case 'audio.delta':
-                        // Handle audio playback here
+                        // Handle audio playback here (optional)
                         break;
 
                     case 'user.speaking':
@@ -353,7 +449,8 @@ function getClientHTML() {
                         break;
 
                     default:
-                        log('Received: ' + data.type);
+                        // log('Received: ' + data.type);
+                        break;
                 }
             };
 
@@ -375,6 +472,9 @@ function getClientHTML() {
                 log('Not connected', 'error');
                 return;
             }
+
+            // Clear previous conversation
+            document.getElementById('conversation').innerHTML = '';
 
             ws.send(JSON.stringify({
                 type: 'session.start',
@@ -424,7 +524,26 @@ function getClientHTML() {
             }));
 
             log('📤 Sent: ' + text);
+            addMessage('user', text);
             input.value = '';
+        }
+
+        function addMessage(sender, text) {
+            const conversationDiv = document.getElementById('conversation');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message ' + sender;
+
+            const labelDiv = document.createElement('div');
+            labelDiv.className = 'label';
+            labelDiv.textContent = sender === 'user' ? 'You' : 'AI';
+
+            const textDiv = document.createElement('div');
+            textDiv.textContent = text;
+
+            messageDiv.appendChild(labelDiv);
+            messageDiv.appendChild(textDiv);
+            conversationDiv.appendChild(messageDiv);
+            conversationDiv.scrollTop = conversationDiv.scrollHeight;
         }
 
         function handleKeyPress(event) {
