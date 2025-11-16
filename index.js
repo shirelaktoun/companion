@@ -360,12 +360,94 @@ function getClientHTML() {
             font-size: 12px;
             margin-bottom: 5px;
         }
+        .audio-controls {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .audio-indicator {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #28a745;
+            display: none;
+            animation: pulse 1s infinite;
+        }
+        .audio-indicator.speaking {
+            display: inline-block;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.1); }
+        }
         input[type="text"] {
             width: calc(100% - 100px);
             padding: 10px;
             border: 1px solid #ddd;
             border-radius: 5px;
             font-size: 14px;
+        }
+        input[type="range"] {
+            flex: 1;
+            max-width: 200px;
+        }
+        .settings-panel {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+        .settings-panel h3 {
+            margin-top: 0;
+            cursor: pointer;
+            user-select: none;
+        }
+        .settings-panel h3:before {
+            content: '▼ ';
+            display: inline-block;
+            transition: transform 0.3s;
+        }
+        .settings-panel.collapsed h3:before {
+            transform: rotate(-90deg);
+        }
+        .settings-content {
+            margin-top: 15px;
+        }
+        .settings-panel.collapsed .settings-content {
+            display: none;
+        }
+        .setting-row {
+            margin: 10px 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .setting-row label {
+            min-width: 120px;
+            font-weight: bold;
+        }
+        .setting-row select,
+        .setting-row input[type="text"] {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .setting-row textarea {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            min-height: 80px;
+            font-family: inherit;
+        }
+        .setting-row input[type="range"] {
+            flex: 1;
         }
     </style>
 </head>
@@ -378,9 +460,54 @@ function getClientHTML() {
             <strong>Session:</strong> <span id="session">None</span>
         </div>
 
+        <div class="settings-panel collapsed" id="settingsPanel">
+            <h3 onclick="toggleSettings()">⚙️ AI Settings</h3>
+            <div class="settings-content">
+                <div class="setting-row">
+                    <label for="voiceSelect">Voice:</label>
+                    <select id="voiceSelect">
+                        <option value="shimmer" selected>Shimmer (Female)</option>
+                        <option value="alloy">Alloy (Neutral)</option>
+                        <option value="echo">Echo (Male)</option>
+                        <option value="fable">Fable (British Male)</option>
+                        <option value="onyx">Onyx (Deep Male)</option>
+                        <option value="nova">Nova (Female)</option>
+                    </select>
+                </div>
+
+                <div class="setting-row">
+                    <label for="temperatureSlider">Temperature:</label>
+                    <input type="range" id="temperatureSlider" min="0" max="100" value="80"
+                           onchange="updateTemperatureLabel(this.value)">
+                    <span id="temperatureLabel">0.8</span>
+                </div>
+
+                <div class="setting-row">
+                    <label for="systemMessage">Personality:</label>
+                    <textarea id="systemMessage" placeholder="Describe how the AI should behave...">You are a helpful AI assistant. Be concise and friendly.</textarea>
+                </div>
+
+                <div class="setting-row">
+                    <label for="greetingText">Greeting:</label>
+                    <input type="text" id="greetingText"
+                           placeholder="Initial greeting message..."
+                           value="Hello! I am your AI companion. How can I help you today?">
+                </div>
+            </div>
+        </div>
+
         <div>
             <button id="startBtn" onclick="startSession()">Start Session</button>
             <button id="endBtn" onclick="endSession()" disabled>End Session</button>
+        </div>
+
+        <div class="audio-controls">
+            <div class="audio-indicator" id="audioIndicator"></div>
+            <span>🔊 Audio:</span>
+            <button id="muteBtn" onclick="toggleMute()">Mute</button>
+            <span>Volume:</span>
+            <input type="range" id="volumeSlider" min="0" max="100" value="80" onchange="setVolume(this.value)">
+            <span id="volumeLabel">80%</span>
         </div>
 
         <div style="margin-top: 20px;">
@@ -398,6 +525,143 @@ function getClientHTML() {
     <script>
         let ws = null;
         let sessionId = null;
+
+        // Audio playback setup
+        let audioContext = null;
+        let audioQueue = [];
+        let isPlaying = false;
+        let isMuted = false;
+        let volume = 0.8;
+        let gainNode = null;
+
+        // Initialize Web Audio API
+        function initAudio() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                gainNode = audioContext.createGain();
+                gainNode.connect(audioContext.destination);
+                gainNode.gain.value = volume;
+                console.log('Audio context initialized');
+            }
+        }
+
+        // Decode base64 PCM16 audio to AudioBuffer
+        function base64ToAudioBuffer(base64) {
+            // Decode base64 to binary
+            const binaryString = atob(base64);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+
+            // PCM16 is 16-bit signed integers, so convert bytes to Int16Array
+            const pcm16 = new Int16Array(bytes.buffer);
+
+            // Convert PCM16 to Float32Array for Web Audio API
+            const float32 = new Float32Array(pcm16.length);
+            for (let i = 0; i < pcm16.length; i++) {
+                float32[i] = pcm16[i] / 32768.0; // Normalize to -1.0 to 1.0
+            }
+
+            // Create AudioBuffer (24kHz sample rate for PCM16 from OpenAI)
+            const audioBuffer = audioContext.createBuffer(1, float32.length, 24000);
+            audioBuffer.getChannelData(0).set(float32);
+
+            return audioBuffer;
+        }
+
+        // Play audio buffer
+        function playAudioBuffer(audioBuffer) {
+            if (isMuted) return;
+
+            const source = audioContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(gainNode);
+
+            source.onended = () => {
+                isPlaying = false;
+                playNextAudio();
+            };
+
+            source.start(0);
+            isPlaying = true;
+
+            // Show speaking indicator
+            document.getElementById('audioIndicator').classList.add('speaking');
+        }
+
+        // Add audio to queue and play if not already playing
+        function queueAudio(base64Audio) {
+            initAudio();
+
+            try {
+                const audioBuffer = base64ToAudioBuffer(base64Audio);
+                audioQueue.push(audioBuffer);
+
+                if (!isPlaying) {
+                    playNextAudio();
+                }
+            } catch (error) {
+                console.error('Error decoding audio:', error);
+            }
+        }
+
+        // Play next audio in queue
+        function playNextAudio() {
+            if (audioQueue.length > 0 && !isPlaying) {
+                const audioBuffer = audioQueue.shift();
+                playAudioBuffer(audioBuffer);
+            } else if (audioQueue.length === 0) {
+                // Hide speaking indicator
+                document.getElementById('audioIndicator').classList.remove('speaking');
+            }
+        }
+
+        // Toggle mute
+        function toggleMute() {
+            isMuted = !isMuted;
+            const btn = document.getElementById('muteBtn');
+            btn.textContent = isMuted ? 'Unmute' : 'Mute';
+            btn.style.background = isMuted ? '#dc3545' : '#007bff';
+
+            if (isMuted) {
+                // Stop current playback
+                audioQueue = [];
+                isPlaying = false;
+                document.getElementById('audioIndicator').classList.remove('speaking');
+            }
+        }
+
+        // Set volume
+        function setVolume(value) {
+            volume = value / 100;
+            if (gainNode) {
+                gainNode.gain.value = volume;
+            }
+            document.getElementById('volumeLabel').textContent = value + '%';
+        }
+
+        // Toggle settings panel
+        function toggleSettings() {
+            const panel = document.getElementById('settingsPanel');
+            panel.classList.toggle('collapsed');
+        }
+
+        // Update temperature label
+        function updateTemperatureLabel(value) {
+            const temp = (value / 100).toFixed(2);
+            document.getElementById('temperatureLabel').textContent = temp;
+        }
+
+        // Get current settings
+        function getSettings() {
+            return {
+                voice: document.getElementById('voiceSelect').value,
+                temperature: parseInt(document.getElementById('temperatureSlider').value) / 100,
+                systemMessage: document.getElementById('systemMessage').value,
+                greetingText: document.getElementById('greetingText').value
+            };
+        }
 
         function connect() {
             ws = new WebSocket(\`ws://\${window.location.host}\`);
@@ -433,7 +697,10 @@ function getClientHTML() {
                         break;
 
                     case 'audio.delta':
-                        // Handle audio playback here (optional)
+                        // Play audio in real-time
+                        if (data.audio) {
+                            queueAudio(data.audio);
+                        }
                         break;
 
                     case 'user.speaking':
@@ -476,13 +743,29 @@ function getClientHTML() {
             // Clear previous conversation
             document.getElementById('conversation').innerHTML = '';
 
+            // Clear audio queue
+            audioQueue = [];
+            isPlaying = false;
+            document.getElementById('audioIndicator').classList.remove('speaking');
+
+            // Initialize audio on user interaction (required by browsers)
+            initAudio();
+
+            // Get custom settings
+            const settings = getSettings();
+
             ws.send(JSON.stringify({
                 type: 'session.start',
                 enableGreeting: true,
-                greetingText: 'Hello! I am your AI companion. How can I help you today?'
+                greetingText: settings.greetingText,
+                voice: settings.voice,
+                temperature: settings.temperature,
+                systemMessage: settings.systemMessage
             }));
 
-            log('Starting AI session...');
+            log('Starting AI session with custom settings...');
+            log(`  Voice: ${settings.voice}`);
+            log(`  Temperature: ${settings.temperature}`);
         }
 
         function endSession() {
