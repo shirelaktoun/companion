@@ -995,13 +995,13 @@ function getClientHTML() {
 
             if (format === 'txt') {
                 content = conversationHistory.map(msg =>
-                    `[${msg.timestamp}] ${msg.sender === 'user' ? 'You' : 'AI'}: ${msg.text}`
+                    '[' + msg.timestamp + '] ' + (msg.sender === 'user' ? 'You' : 'AI') + ': ' + msg.text
                 ).join('\n\n');
-                filename = `conversation_${Date.now()}.txt`;
+                filename = 'conversation_' + Date.now() + '.txt';
                 mimeType = 'text/plain';
             } else if (format === 'json') {
                 content = JSON.stringify(conversationHistory, null, 2);
-                filename = `conversation_${Date.now()}.json`;
+                filename = 'conversation_' + Date.now() + '.json';
                 mimeType = 'application/json';
             }
 
@@ -1016,7 +1016,7 @@ function getClientHTML() {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
 
-            log(`📥 Exported conversation as ${format.toUpperCase()}`);
+            log('📥 Exported conversation as ' + format.toUpperCase());
         }
 
         // Clear conversation
@@ -1031,7 +1031,7 @@ function getClientHTML() {
         }
 
         function connect() {
-            ws = new WebSocket(\`ws://\${window.location.host}\`);
+            ws = new WebSocket('ws://' + window.location.host);
 
             ws.onopen = () => {
                 log('Connected to server');
@@ -1130,7 +1130,7 @@ function getClientHTML() {
             let systemMessage = settings.systemMessage;
             if (settings.language !== 'en') {
                 const languageName = document.getElementById('languageSelect').selectedOptions[0].text.split('(')[0].trim();
-                systemMessage += `\n\nIMPORTANT: Respond in ${languageName} language.`;
+                systemMessage += '\\n\\nIMPORTANT: Respond in ' + languageName + ' language.';
             }
 
             ws.send(JSON.stringify({
@@ -1180,9 +1180,9 @@ function getClientHTML() {
             }));
 
             log('Starting AI session with custom settings...');
-            log(`  Voice: ${settings.voice}`);
-            log(`  Temperature: ${settings.temperature}`);
-            log(`  Language: ${settings.language}`);
+            log('  Voice: ' + settings.voice);
+            log('  Temperature: ' + settings.temperature);
+            log('  Language: ' + settings.language);
         }
 
         function endSession() {
@@ -1263,7 +1263,7 @@ function getClientHTML() {
             const logDiv = document.getElementById('log');
             const entry = document.createElement('div');
             entry.className = 'log-entry';
-            entry.textContent = \`[\${new Date().toLocaleTimeString()}] \${message}\`;
+            entry.textContent = '[' + new Date().toLocaleTimeString() + '] ' + message;
             if (level === 'error') entry.style.borderLeftColor = 'red';
             logDiv.appendChild(entry);
             logDiv.scrollTop = logDiv.scrollHeight;
