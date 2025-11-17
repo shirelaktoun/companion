@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js",
-    "telephony": "node telephony-server.js",
+    "telephony": "node audiosocket-server.js",
     "all": "concurrently \"npm start\" \"npm run telephony\""
   },
   "keywords": ["ai", "realtime", "openai", "voice", "companion"],
