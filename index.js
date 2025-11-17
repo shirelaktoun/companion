@@ -846,7 +846,7 @@ function getClientHTML() {
             }
 
             applyPreset(preset);
-            log(`✅ Loaded ${presetName} preset`);
+            log('✅ Loaded ' + presetName + ' preset');
         }
 
         // Apply preset to form
