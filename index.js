@@ -996,7 +996,7 @@ function getClientHTML() {
             if (format === 'txt') {
                 content = conversationHistory.map(msg =>
                     '[' + msg.timestamp + '] ' + (msg.sender === 'user' ? 'You' : 'AI') + ': ' + msg.text
-                ).join('\n\n');
+                ).join('\\n\\n');
                 filename = 'conversation_' + Date.now() + '.txt';
                 mimeType = 'text/plain';
             } else if (format === 'json') {
@@ -1130,7 +1130,7 @@ function getClientHTML() {
             let systemMessage = settings.systemMessage;
             if (settings.language !== 'en') {
                 const languageName = document.getElementById('languageSelect').selectedOptions[0].text.split('(')[0].trim();
-                systemMessage += '\n\nIMPORTANT: Respond in ' + languageName + ' language.';
+                systemMessage += '\\n\\nIMPORTANT: Respond in ' + languageName + ' language.';
             }
 
             ws.send(JSON.stringify({
