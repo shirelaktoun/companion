@@ -7,6 +7,8 @@
 import dotenv from 'dotenv';
 import { AIAgent } from './ai-agent.js';
 import http from 'http';
+import https from 'https';
+import fs from 'fs';
 import { WebSocketServer } from 'ws';
 
 // Load environment variables
@@ -14,6 +16,7 @@ dotenv.config();
 
 // Configuration
 const PORT = process.env.PORT || 3000;
+const USE_HTTPS = process.env.USE_HTTPS === 'true';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const VOICE = process.env.VOICE || 'shimmer';
 const TEMPERATURE = parseFloat(process.env.TEMPERATURE) || 0.8;
@@ -148,8 +151,9 @@ aiAgent.on('error', ({ sessionId, error }) => {
     console.error(`❌ AI Agent Error (${sessionId}):`, error);
 });
 
-// Create HTTP server
-const server = http.createServer((req, res) => {
+// Create HTTP/HTTPS server
+let server;
+const requestHandler = (req, res) => {
     if (req.url === '/' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(getClientHTML());
@@ -169,7 +173,25 @@ const server = http.createServer((req, res) => {
         res.writeHead(404, { 'Content-Type': 'text/plain' });
         res.end('Not Found');
     }
-});
+};
+
+// Create server based on USE_HTTPS flag
+if (USE_HTTPS) {
+    try {
+        const options = {
+            key: fs.readFileSync('/opt/companion/key.pem'),
+            cert: fs.readFileSync('/opt/companion/cert.pem')
+        };
+        server = https.createServer(options, requestHandler);
+        console.log('🔒 HTTPS mode enabled');
+    } catch (error) {
+        console.error('❌ Failed to load SSL certificates:', error.message);
+        console.log('   Falling back to HTTP mode');
+        server = http.createServer(requestHandler);
+    }
+} else {
+    server = http.createServer(requestHandler);
+}
 
 // Create WebSocket server
 const wss = new WebSocketServer({ server });
@@ -1036,7 +1058,8 @@ function getClientHTML() {
         }
 
         function connect() {
-            ws = new WebSocket('ws://' + window.location.host);
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(wsProtocol + '//' + window.location.host);
 
             ws.onopen = () => {
                 log('Connected to server');
@@ -1283,10 +1306,14 @@ function getClientHTML() {
 
 // Start server
 server.listen(PORT, () => {
-    console.log(`✅ Server running on http://localhost:${PORT}`);
-    console.log(`   Test client: http://localhost:${PORT}`);
-    console.log(`   Health check: http://localhost:${PORT}/health`);
-    console.log(`   Active sessions: http://localhost:${PORT}/sessions`);
+    const protocol = USE_HTTPS ? 'https' : 'http';
+    console.log(`✅ Server running on ${protocol}://localhost:${PORT}`);
+    console.log(`   Test client: ${protocol}://localhost:${PORT}`);
+    console.log(`   Health check: ${protocol}://localhost:${PORT}/health`);
+    console.log(`   Active sessions: ${protocol}://localhost:${PORT}/sessions`);
+    if (USE_HTTPS) {
+        console.log(`   ⚠️  Self-signed certificate - you'll need to accept the security warning in your browser`);
+    }
     console.log('');
 });
 
