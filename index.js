@@ -666,8 +666,8 @@ function getClientHTML() {
             'friendly': {
                 voice: 'nova',
                 temperature: 0.8,
-                systemMessage: 'You are a friendly companion. Be warm, encouraging, and conversational. Show genuine interest in the user\'s wellbeing.',
-                greetingText: 'Hey there! Great to chat with you. How\'s everything going?',
+                systemMessage: 'You are a friendly companion. Be warm, encouraging, and conversational. Show genuine interest in the user\\'s wellbeing.',
+                greetingText: 'Hey there! Great to chat with you. How\\'s everything going?',
                 language: 'en'
             },
             'technical': {
@@ -681,7 +681,7 @@ function getClientHTML() {
                 voice: 'shimmer',
                 temperature: 0.7,
                 systemMessage: 'You are a customer service representative. Be empathetic, patient, and always maintain a positive tone. Focus on resolving issues efficiently.',
-                greetingText: 'Hello! Thank you for reaching out. I\'m here to help. What can I assist you with today?',
+                greetingText: 'Hello! Thank you for reaching out. I\\'m here to help. What can I assist you with today?',
                 language: 'en'
             }
         };
@@ -690,7 +690,7 @@ function getClientHTML() {
         const languageGreetings = {
             'en': 'Hello! How can I help you today?',
             'es': '¡Hola! ¿Cómo puedo ayudarte hoy?',
-            'fr': 'Bonjour! Comment puis-je vous aider aujourd\'hui?',
+            'fr': 'Bonjour! Comment puis-je vous aider aujourd\\'hui?',
             'de': 'Hallo! Wie kann ich Ihnen heute helfen?',
             'it': 'Ciao! Come posso aiutarti oggi?',
             'pt': 'Olá! Como posso ajudá-lo hoje?',
