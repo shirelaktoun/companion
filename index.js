@@ -886,6 +886,11 @@ function getClientHTML() {
         // Start microphone recording
         async function startRecording() {
             try {
+                // Check if getUserMedia is supported
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    throw new Error('Your browser does not support microphone access. Please use Chrome, Firefox, or Edge, and ensure you are accessing via HTTPS or localhost.');
+                }
+
                 initAudio();
 
                 // Request microphone access
