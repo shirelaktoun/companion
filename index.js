@@ -151,7 +151,7 @@ aiAgent.on('error', ({ sessionId, error }) => {
 // Create HTTP server
 const server = http.createServer((req, res) => {
     if (req.url === '/' && req.method === 'GET') {
-        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(getClientHTML());
     } else if (req.url === '/health' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -1130,7 +1130,7 @@ function getClientHTML() {
             let systemMessage = settings.systemMessage;
             if (settings.language !== 'en') {
                 const languageName = document.getElementById('languageSelect').selectedOptions[0].text.split('(')[0].trim();
-                systemMessage += '\\n\\nIMPORTANT: Respond in ' + languageName + ' language.';
+                systemMessage += '\n\nIMPORTANT: Respond in ' + languageName + ' language.';
             }
 
             ws.send(JSON.stringify({
