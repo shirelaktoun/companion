@@ -90,6 +90,7 @@ class AudioSocketSession {
         this.uuid = null;
         this.callerId = 'Unknown';
         this.isActive = false;
+        this.aiAgent = aiAgent;  // Store reference to AI agent
 
         console.log('🔌 New AudioSocket connection');
 
@@ -98,9 +99,9 @@ class AudioSocketSession {
         this.socket.on('error', this.handleError.bind(this));
 
         // Set up AI event handlers
-        aiAgent.on('audio', this.handleAIAudio.bind(this));
-        aiAgent.on('transcript', this.handleTranscript.bind(this));
-        aiAgent.on('session.ready', this.handleSessionReady.bind(this));
+        this.aiAgent.on('audio', this.handleAIAudio.bind(this));
+        this.aiAgent.on('transcript', this.handleTranscript.bind(this));
+        this.aiAgent.on('session.ready', this.handleSessionReady.bind(this));
     }
 
     handleData(data) {
