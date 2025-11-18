@@ -47,13 +47,13 @@ class AudioConverter {
         // Ensure buffer has even length (Int16 = 2 bytes per sample)
         let buffer = pcm16k;
         if (buffer.length % 2 !== 0) {
-            // Trim last byte if odd length
-            buffer = buffer.slice(0, buffer.length - 1);
+            // Create new buffer with even length
+            buffer = Buffer.from(buffer.slice(0, buffer.length - 1));
         }
 
         if (buffer.length === 0) return Buffer.alloc(0);
 
-        const input = new Int16Array(buffer.buffer || buffer);
+        const input = new Int16Array(buffer.buffer, buffer.byteOffset, buffer.length / 2);
         const output = new Int16Array(Math.floor(input.length * 1.5));
 
         // Simple linear interpolation
@@ -77,12 +77,13 @@ class AudioConverter {
         // Ensure buffer has even length (Int16 = 2 bytes per sample)
         let buffer = pcm24k;
         if (buffer.length % 2 !== 0) {
-            buffer = buffer.slice(0, buffer.length - 1);
+            // Create new buffer with even length
+            buffer = Buffer.from(buffer.slice(0, buffer.length - 1));
         }
 
         if (buffer.length === 0) return Buffer.alloc(0);
 
-        const input = new Int16Array(buffer.buffer || buffer);
+        const input = new Int16Array(buffer.buffer, buffer.byteOffset, buffer.length / 2);
         const output = new Int16Array(Math.floor(input.length / 1.5));
 
         // Simple decimation with averaging
