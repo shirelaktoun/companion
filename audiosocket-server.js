@@ -254,9 +254,10 @@ const audioSocketServer = net.createServer((socket) => {
     new AudioSocketSession(socket);
 });
 
-audioSocketServer.listen(AUDIOSOCKET_PORT, '127.0.0.1', () => {
-    console.log(`✅ AudioSocket server listening on 127.0.0.1:${AUDIOSOCKET_PORT}`);
+audioSocketServer.listen(AUDIOSOCKET_PORT, '0.0.0.0', () => {
+    console.log(`✅ AudioSocket server listening on 0.0.0.0:${AUDIOSOCKET_PORT}`);
     console.log(`   Extension: 7000`);
+    console.log(`   Accepting connections from Asterisk server`);
     console.log(`   Ready to receive calls!`);
     console.log('');
 });
