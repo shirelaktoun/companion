@@ -223,6 +223,7 @@ wss.on('connection', (ws) => {
 
                 case 'audio.append':
                     // Send audio to AI
+                    console.log(`🎤 Received audio from client: ${message.audio ? message.audio.length : 0} bytes`);
                     aiAgent.sendAudio(sessionId, message.audio);
                     break;
 
@@ -630,9 +631,18 @@ function getClientHTML() {
             <button onclick="sendText()">Send Text</button>
         </div>
 
-        <button class="mic-button" id="micBtn" onclick="toggleMicrophone()" title="Push to talk">
+        <button class="mic-button" id="micBtn"
+                onmousedown="startRecording()"
+                onmouseup="stopRecording()"
+                onmouseleave="stopRecording()"
+                ontouchstart="startRecording()"
+                ontouchend="stopRecording()"
+                title="Hold to talk (Push-to-talk)">
             🎤
         </button>
+        <div style="text-align: center; color: #666; font-size: 14px; margin-top: 10px;">
+            <strong>Hold</strong> the microphone button to speak
+        </div>
 
         <h3>Conversation</h3>
         <div class="conversation" id="conversation"></div>
@@ -891,23 +901,25 @@ function getClientHTML() {
             alert('Custom preset saved successfully!');
         }
 
-        // Toggle microphone
-        async function toggleMicrophone() {
+        // Audio processing variables for direct capture
+        let audioProcessor = null;
+        let processorNode = null;
+
+        // Start microphone recording (push-to-talk)
+        async function startRecording() {
             if (!sessionId) {
-                log('Please start a session first', 'error');
+                log('⚠️ Please start a session first', 'error');
                 return;
             }
 
+            // Prevent starting if already recording
             if (isRecording) {
-                stopRecording();
-            } else {
-                await startRecording();
+                return;
             }
-        }
 
-        // Start microphone recording
-        async function startRecording() {
             try {
+                console.log('🎤 Starting microphone capture...');
+
                 // Check if getUserMedia is supported
                 if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                     throw new Error('Your browser does not support microphone access. Please use Chrome, Firefox, or Edge, and ensure you are accessing via HTTPS or localhost.');
@@ -915,52 +927,84 @@ function getClientHTML() {
 
                 initAudio();
 
-                // Request microphone access
+                // Request microphone access with simpler constraints
+                console.log('📡 Requesting microphone access...');
                 audioStream = await navigator.mediaDevices.getUserMedia({
                     audio: {
                         channelCount: 1,
-                        sampleRate: 24000,
                         echoCancellation: true,
-                        noiseSuppression: true
+                        noiseSuppression: true,
+                        autoGainControl: true
                     }
                 });
 
-                // Create MediaRecorder for audio streaming
-                mediaRecorder = new MediaRecorder(audioStream, {
-                    mimeType: 'audio/webm;codecs=opus'
-                });
+                console.log('✅ Microphone access granted');
+                console.log('   Sample rate:', audioContext.sampleRate);
 
-                mediaRecorder.ondataavailable = async (event) => {
-                    if (event.data.size > 0) {
-                        // Convert to PCM16 and send to AI
-                        const arrayBuffer = await event.data.arrayBuffer();
-                        const audioData = await convertToPCM16(arrayBuffer);
-                        if (ws && ws.readyState === WebSocket.OPEN) {
-                            ws.send(JSON.stringify({
-                                type: 'audio.append',
-                                audio: audioData
-                            }));
-                        }
+                // Create audio source from stream
+                const source = audioContext.createMediaStreamSource(audioStream);
+
+                // Create ScriptProcessor for direct audio capture (more reliable than MediaRecorder)
+                const bufferSize = 4096;
+                processorNode = audioContext.createScriptProcessor(bufferSize, 1, 1);
+
+                processorNode.onaudioprocess = (e) => {
+                    if (!isRecording) return;
+
+                    const inputData = e.inputBuffer.getChannelData(0);
+
+                    // Convert Float32 to PCM16
+                    const pcm16 = new Int16Array(inputData.length);
+                    for (let i = 0; i < inputData.length; i++) {
+                        const s = Math.max(-1, Math.min(1, inputData[i]));
+                        pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                    }
+
+                    // Convert to base64
+                    const bytes = new Uint8Array(pcm16.buffer);
+                    let binary = '';
+                    for (let i = 0; i < bytes.length; i++) {
+                        binary += String.fromCharCode(bytes[i]);
+                    }
+                    const base64Audio = btoa(binary);
+
+                    // Send to server
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({
+                            type: 'audio.append',
+                            audio: base64Audio
+                        }));
                     }
                 };
 
-                // Capture audio in chunks every 100ms
-                mediaRecorder.start(100);
-                isRecording = true;
+                // Connect the audio processing pipeline
+                source.connect(processorNode);
+                processorNode.connect(audioContext.destination);
 
+                isRecording = true;
                 document.getElementById('micBtn').classList.add('recording');
-                log('🎤 Microphone recording started');
+                log('🎤 Microphone recording started (direct capture)');
+                console.log('🎙️ Recording active - speak now!');
 
             } catch (error) {
-                console.error('Microphone error:', error);
+                console.error('❌ Microphone error:', error);
                 log('❌ Microphone access denied or error: ' + error.message, 'error');
             }
         }
 
-        // Stop microphone recording
+        // Stop microphone recording (release push-to-talk)
         function stopRecording() {
-            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                mediaRecorder.stop();
+            // Only stop if actually recording
+            if (!isRecording) {
+                return;
+            }
+
+            console.log('🛑 Stopping microphone capture...');
+
+            // Disconnect audio processing
+            if (processorNode) {
+                processorNode.disconnect();
+                processorNode = null;
             }
 
             if (audioStream) {
@@ -970,7 +1014,8 @@ function getClientHTML() {
 
             isRecording = false;
             document.getElementById('micBtn').classList.remove('recording');
-            log('🔇 Microphone recording stopped');
+            log('🔇 Released (stopped recording)');
+            console.log('✅ Microphone stopped');
         }
 
         // Convert WebM audio to PCM16 base64
