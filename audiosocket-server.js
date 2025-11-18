@@ -208,22 +208,30 @@ class AudioSocketSession {
     handleAIAudio({ sessionId, audio }) {
         if (sessionId !== this.sessionId || !this.isActive) return;
 
+        console.log(`🔊 Received ${audio.length} bytes of audio from AI`);
+
         try {
             // Decode base64 PCM16 24kHz from OpenAI
             const pcm24k = Buffer.from(audio, 'base64');
+            console.log(`   Decoded to ${pcm24k.length} bytes PCM24k`);
 
             // Convert to 16kHz for Asterisk
             const pcm16k = AudioConverter.resample24to16(pcm24k);
+            console.log(`   Resampled to ${pcm16k.length} bytes PCM16k`);
 
             // Send to Asterisk via AudioSocket
             this.sendAudioPacket(pcm16k);
+            console.log(`   ✅ Sent to Asterisk`);
         } catch (error) {
             console.error('❌ Failed to send audio to caller:', error);
         }
     }
 
     sendAudioPacket(audioData) {
-        if (!this.socket || this.socket.destroyed) return;
+        if (!this.socket || this.socket.destroyed) {
+            console.log('   ⚠️  Socket unavailable, cannot send audio');
+            return;
+        }
 
         // AudioSocket packet: [Type(1)][Length(2)][Data]
         const packet = Buffer.allocUnsafe(3 + audioData.length);
@@ -231,7 +239,11 @@ class AudioSocketSession {
         packet.writeUInt16BE(audioData.length, 1);
         audioData.copy(packet, 3);
 
-        this.socket.write(packet);
+        this.socket.write(packet, (err) => {
+            if (err) {
+                console.error('   ❌ Socket write error:', err);
+            }
+        });
     }
 
     handleTranscript({ sessionId, text, sender }) {
