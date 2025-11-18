@@ -44,7 +44,16 @@ const AUDIOSOCKET_HANGUP = 0x00;
 class AudioConverter {
     // Resample 16kHz to 24kHz (OpenAI expects 24kHz)
     static resample16to24(pcm16k) {
-        const input = new Int16Array(pcm16k.buffer || pcm16k);
+        // Ensure buffer has even length (Int16 = 2 bytes per sample)
+        let buffer = pcm16k;
+        if (buffer.length % 2 !== 0) {
+            // Trim last byte if odd length
+            buffer = buffer.slice(0, buffer.length - 1);
+        }
+
+        if (buffer.length === 0) return Buffer.alloc(0);
+
+        const input = new Int16Array(buffer.buffer || buffer);
         const output = new Int16Array(Math.floor(input.length * 1.5));
 
         // Simple linear interpolation
@@ -65,7 +74,15 @@ class AudioConverter {
 
     // Resample 24kHz to 16kHz (Asterisk slin16 is 16kHz)
     static resample24to16(pcm24k) {
-        const input = new Int16Array(pcm24k.buffer || pcm24k);
+        // Ensure buffer has even length (Int16 = 2 bytes per sample)
+        let buffer = pcm24k;
+        if (buffer.length % 2 !== 0) {
+            buffer = buffer.slice(0, buffer.length - 1);
+        }
+
+        if (buffer.length === 0) return Buffer.alloc(0);
+
+        const input = new Int16Array(buffer.buffer || buffer);
         const output = new Int16Array(Math.floor(input.length / 1.5));
 
         // Simple decimation with averaging
