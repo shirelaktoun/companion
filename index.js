@@ -10,6 +10,8 @@ import http from 'http';
 import https from 'https';
 import fs from 'fs';
 import { WebSocketServer } from 'ws';
+import AsteriskManager from 'asterisk-manager';
+import { v4 as uuidv4 } from 'uuid';
 
 // Load environment variables
 dotenv.config();
@@ -21,6 +23,17 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const VOICE = process.env.VOICE || 'shimmer';
 const TEMPERATURE = parseFloat(process.env.TEMPERATURE) || 0.8;
 const SYSTEM_MESSAGE = process.env.SYSTEM_MESSAGE || 'You are a helpful AI assistant. Be concise and friendly.';
+
+// AMI Configuration for call origination
+const AMI_HOST = process.env.ASTERISK_AMI_HOST || '87.106.72.7';
+const AMI_PORT = parseInt(process.env.ASTERISK_AMI_PORT) || 5038;
+const AMI_USERNAME = process.env.ASTERISK_AMI_USERNAME;
+const AMI_SECRET = process.env.ASTERISK_AMI_SECRET;
+const AUDIOSOCKET_PORT = process.env.AUDIOSOCKET_PORT || 4000;
+const APP_SERVER_IP = '87.106.74.102'; // Application server IP for AudioSocket callback
+
+// Store for call parameters (keyed by call UUID)
+const callParameters = new Map();
 
 // Validate configuration
 if (!OPENAI_API_KEY) {
@@ -151,6 +164,104 @@ aiAgent.on('error', ({ sessionId, error }) => {
     console.error(`❌ AI Agent Error (${sessionId}):`, error);
 });
 
+// Initialize Asterisk Manager Interface
+let ami = null;
+if (AMI_USERNAME && AMI_SECRET) {
+    ami = new AsteriskManager(
+        AMI_PORT,
+        AMI_HOST,
+        AMI_USERNAME,
+        AMI_SECRET,
+        true // Enable events
+    );
+
+    ami.keepConnected();
+
+    ami.on('connect', () => {
+        console.log('✅ Connected to Asterisk AMI');
+    });
+
+    ami.on('error', (err) => {
+        console.error('❌ AMI Error:', err);
+    });
+
+    ami.on('close', () => {
+        console.log('⚠️  AMI connection closed');
+    });
+} else {
+    console.log('⚠️  AMI credentials not configured - call origination disabled');
+}
+
+/**
+ * Originate a call through Asterisk AMI
+ * @param {Object} params - Call parameters
+ * @param {string} params.name - Caller name
+ * @param {string} params.phoneNumber - Phone number to call
+ * @param {string} params.greeting - Custom greeting message
+ * @param {string} params.customInstructions - Custom system instructions
+ * @returns {Promise<string>} - Call UUID
+ */
+async function originateCall(params) {
+    if (!ami) {
+        throw new Error('AMI not configured');
+    }
+
+    const { name, phoneNumber, greeting, customInstructions } = params;
+
+    if (!phoneNumber) {
+        throw new Error('Phone number is required');
+    }
+
+    // Generate proper RFC 4122 UUID for AudioSocket
+    const callUuid = uuidv4();
+
+    // Store call parameters for when AudioSocket session starts
+    callParameters.set(callUuid, {
+        name: name || 'Guest',
+        greeting: greeting || `Hello ${name || 'there'}! How can I help you today?`,
+        customInstructions: customInstructions || SYSTEM_MESSAGE,
+        phoneNumber
+    });
+
+    console.log(`📞 Originating call to ${phoneNumber} (UUID: ${callUuid})`);
+
+    return new Promise((resolve, reject) => {
+        // Use Local channel for both internal and external calls
+        // The key is to set the right variables for FreePBX to recognize this as a valid outbound call
+
+        const originateParams = {
+            Action: 'Originate',
+            Channel: `Local/${phoneNumber}@from-internal`,
+            Context: 'from-internal-custom',
+            Exten: '7000',
+            Priority: '1',
+            CallerID: `"Extension 7000" <7000>`,
+            Timeout: 30000,
+            Async: 'true',
+            Variable: [
+                `CALL_UUID=${callUuid}`,
+                `__AMPUSER=7000`,
+                `__AMPUSERCIDNAME=Extension 7000`,
+                `__FROM_DID=7000`,
+                `__REALCALLERIDNUM=7000`
+            ].join(',')
+        };
+
+        console.log('📞 AMI Originate request:', JSON.stringify(originateParams, null, 2));
+
+        ami.action(originateParams, (err, res) => {
+            if (err) {
+                console.error('❌ Failed to originate call:', err);
+                callParameters.delete(callUuid); // Clean up
+                reject(err);
+            } else {
+                console.log('✅ AMI Response:', JSON.stringify(res, null, 2));
+                resolve(callUuid);
+            }
+        });
+    });
+}
+
 // Create HTTP/HTTPS server
 let server;
 const requestHandler = (req, res) => {
@@ -169,6 +280,61 @@ const requestHandler = (req, res) => {
         res.end(JSON.stringify({
             sessions: aiAgent.getActiveSessions()
         }));
+    } else if (req.url.startsWith('/api/call-params/') && req.method === 'GET') {
+        // Internal API for audiosocket-server to retrieve call parameters
+        const callId = req.url.split('/api/call-params/')[1];
+        const params = callParameters.get(callId);
+
+        if (params) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(params));
+        } else {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Call parameters not found' }));
+        }
+    } else if (req.url === '/api/call' && req.method === 'POST') {
+        // Handle n8n call origination
+        let body = '';
+        req.on('data', chunk => {
+            body += chunk.toString();
+        });
+        req.on('end', async () => {
+            try {
+                const params = JSON.parse(body);
+
+                // Validate required fields
+                if (!params.phoneNumber) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({
+                        success: false,
+                        error: 'phoneNumber is required'
+                    }));
+                    return;
+                }
+
+                // Originate call
+                const callId = await originateCall({
+                    name: params.name,
+                    phoneNumber: params.phoneNumber,
+                    greeting: params.greeting,
+                    customInstructions: params.customInstructions
+                });
+
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                    success: true,
+                    callId,
+                    message: `Call originated to ${params.phoneNumber}`
+                }));
+            } catch (error) {
+                console.error('❌ Error originating call:', error);
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                    success: false,
+                    error: error.message
+                }));
+            }
+        });
     } else {
         res.writeHead(404, { 'Content-Type': 'text/plain' });
         res.end('Not Found');

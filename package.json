@@ -10,11 +10,19 @@
     "telephony": "node audiosocket-server.js",
     "all": "concurrently \"npm start\" \"npm run telephony\""
   },
-  "keywords": ["ai", "realtime", "openai", "voice", "companion"],
+  "keywords": [
+    "ai",
+    "realtime",
+    "openai",
+    "voice",
+    "companion"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "ws": "^8.14.2",
-    "dotenv": "^16.3.1"
+    "asterisk-manager": "^0.2.0",
+    "dotenv": "^16.3.1",
+    "uuid": "^13.0.0",
+    "ws": "^8.14.2"
   }
 }

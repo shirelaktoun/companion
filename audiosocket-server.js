@@ -5,6 +5,7 @@
  */
 
 import net from 'net';
+import http from 'http';
 import { AIAgent } from './ai-agent.js';
 import dotenv from 'dotenv';
 
@@ -15,6 +16,7 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const VOICE = process.env.VOICE || 'shimmer';
 const TEMPERATURE = parseFloat(process.env.TEMPERATURE) || 0.8;
 const SYSTEM_MESSAGE = process.env.SYSTEM_MESSAGE || 'You are a helpful AI assistant speaking on a phone call. Be concise and friendly. Keep responses brief since this is a phone conversation.';
+const WEB_SERVER_PORT = process.env.PORT || 3002;
 
 if (!OPENAI_API_KEY) {
     console.error('❌ Missing OPENAI_API_KEY in .env file');
@@ -26,14 +28,6 @@ console.log('   Port:', AUDIOSOCKET_PORT);
 console.log('   Voice:', VOICE);
 console.log('   Temperature:', TEMPERATURE);
 console.log('');
-
-// Initialize AI Agent
-const aiAgent = new AIAgent({
-    apiKey: OPENAI_API_KEY,
-    voice: VOICE,
-    temperature: TEMPERATURE,
-    systemMessage: SYSTEM_MESSAGE
-});
 
 // AudioSocket Protocol Constants
 const AUDIOSOCKET_UUID = 0x01;
@@ -125,6 +119,59 @@ class AudioConverter {
     }
 }
 
+/**
+ * Fetch call parameters from the web server
+ * @param {string} callId - Call UUID
+ * @returns {Promise<Object|null>} Call parameters or null if not found
+ */
+function fetchCallParameters(callId) {
+    return new Promise((resolve) => {
+        const options = {
+            hostname: 'localhost',
+            port: WEB_SERVER_PORT,
+            path: `/api/call-params/${callId}`,
+            method: 'GET',
+            timeout: 2000
+        };
+
+        const req = http.request(options, (res) => {
+            let data = '';
+
+            res.on('data', (chunk) => {
+                data += chunk;
+            });
+
+            res.on('end', () => {
+                if (res.statusCode === 200) {
+                    try {
+                        const params = JSON.parse(data);
+                        resolve(params);
+                    } catch (error) {
+                        console.error('❌ Failed to parse call parameters:', error);
+                        resolve(null);
+                    }
+                } else {
+                    // Parameters not found - this is normal for non-API originated calls
+                    resolve(null);
+                }
+            });
+        });
+
+        req.on('error', (error) => {
+            console.error('⚠️  Failed to fetch call parameters:', error.message);
+            resolve(null);
+        });
+
+        req.on('timeout', () => {
+            console.error('⚠️  Timeout fetching call parameters');
+            req.destroy();
+            resolve(null);
+        });
+
+        req.end();
+    });
+}
+
 // Handle AudioSocket connection
 class AudioSocketSession {
     constructor(socket) {
@@ -133,15 +180,23 @@ class AudioSocketSession {
         this.uuid = null;
         this.callerId = 'Unknown';
         this.isActive = false;
-        this.aiAgent = aiAgent;  // Store reference to AI agent
 
-        console.log('🔌 New AudioSocket connection');
+        // Create a dedicated AI agent instance for this call
+        this.aiAgent = new AIAgent({
+            apiKey: OPENAI_API_KEY,
+            voice: VOICE,
+            temperature: TEMPERATURE,
+            systemMessage: SYSTEM_MESSAGE
+        });
+
+        console.log('🔌 New AudioSocket connection from', socket.remoteAddress);
+        console.error('[DEBUG] AudioSocket connection established'); // Use stderr for visibility
 
         this.socket.on('data', this.handleData.bind(this));
         this.socket.on('end', this.handleEnd.bind(this));
         this.socket.on('error', this.handleError.bind(this));
 
-        // Set up AI event handlers
+        // Set up AI event handlers for this specific agent instance
         this.aiAgent.on('audio-delta', this.handleAIAudio.bind(this));
         this.aiAgent.on('transcript', this.handleTranscript.bind(this));
         this.aiAgent.on('session-ready', this.handleSessionReady.bind(this));
@@ -167,11 +222,21 @@ class AudioSocketSession {
     }
 
     handlePacket(type, payload) {
+        console.error(`[DEBUG] handlePacket type=${type} payload length=${payload.length}`);
         switch (type) {
             case AUDIOSOCKET_UUID:
-                // UUID packet - call identifier
-                this.uuid = payload.toString('utf8');
+                // UUID packet - call identifier (16 bytes binary UUID)
+                // Convert binary UUID to standard string format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+                if (payload.length === 16) {
+                    // Parse as binary UUID
+                    const hex = payload.toString('hex');
+                    this.uuid = `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20,32)}`;
+                } else {
+                    // Fallback to UTF-8 string (for text-based UUIDs)
+                    this.uuid = payload.toString('utf8');
+                }
                 console.log(`📞 Call UUID: ${this.uuid}`);
+                console.error(`[DEBUG] Received UUID: ${this.uuid}, starting AI session...`);
                 this.startAISession();
                 break;
 
@@ -206,20 +271,45 @@ class AudioSocketSession {
         this.callerId = this.uuid || 'Unknown';
 
         console.log(`📞 Starting AI session for call ${this.callerId}`);
+        console.error(`[DEBUG] startAISession called for UUID: ${this.uuid}`);
 
         try {
-            // Start AI session with greeting
+            // Fetch call parameters if this was an API-originated call
+            console.error(`[DEBUG] Fetching call parameters...`);
+            const callParams = await fetchCallParameters(this.uuid);
+            console.error(`[DEBUG] Call params result:`, callParams);
+
+            let greetingText = 'Hello! This is your A I assistant. How can I help you today?';
+            let systemMessage = SYSTEM_MESSAGE;
+
+            if (callParams) {
+                console.log(`✅ Found call parameters for ${callParams.name} (${callParams.phoneNumber})`);
+                greetingText = callParams.greeting || greetingText;
+                systemMessage = callParams.customInstructions || systemMessage;
+
+                // Log the customization
+                console.log(`   Using custom greeting: "${greetingText}"`);
+                if (callParams.customInstructions) {
+                    console.log(`   Using custom instructions`);
+                }
+            }
+
+            // Start AI session with greeting and custom parameters
+            console.error(`[DEBUG] Starting aiAgent session...`);
             await this.aiAgent.startSession(this.sessionId, {
                 voice: VOICE,
                 temperature: TEMPERATURE,
-                systemMessage: SYSTEM_MESSAGE,
+                systemMessage: systemMessage,
                 enableGreeting: true,
-                greetingText: 'Hello! This is your A I assistant. How can I help you today?'
+                greetingText: greetingText
             });
+            console.error(`[DEBUG] aiAgent session started successfully`);
 
             this.isActive = true;
+            console.error(`[DEBUG] Session is now active`);
         } catch (error) {
             console.error('❌ Failed to start AI session:', error);
+            console.error(`[DEBUG] Error stack:`, error.stack);
             this.endSession();
         }
     }
@@ -259,8 +349,8 @@ class AudioSocketSession {
         }
 
         // Split large packets into smaller chunks to prevent Asterisk buffer overflow
-        // Max 320 bytes (160 samples at 8kHz = 20ms of audio)
-        const MAX_CHUNK_SIZE = 320;
+        // Max 160 bytes (80 samples at 8kHz = 10ms of audio) - smaller chunks for better flow
+        const MAX_CHUNK_SIZE = 160;
 
         for (let offset = 0; offset < audioData.length; offset += MAX_CHUNK_SIZE) {
             const chunkSize = Math.min(MAX_CHUNK_SIZE, audioData.length - offset);
@@ -272,11 +362,11 @@ class AudioSocketSession {
             packet.writeUInt16BE(chunk.length, 1);
             chunk.copy(packet, 3);
 
-            this.socket.write(packet, (err) => {
-                if (err) {
-                    console.error('   ❌ Socket write error:', err);
-                }
-            });
+            // Check backpressure and send
+            const flushed = this.socket.write(packet);
+            if (!flushed) {
+                console.log('   ⚠️  Socket buffer full, slowing down...');
+            }
         }
     }
 
@@ -296,11 +386,15 @@ class AudioSocketSession {
             this.aiAgent.endSession(this.sessionId);
         }
 
-        // Send hangup packet
-        if (!this.socket.destroyed) {
-            const hangup = Buffer.from([AUDIOSOCKET_HANGUP, 0, 0]);
-            this.socket.write(hangup);
-            this.socket.end();
+        // Send hangup packet only if socket is still writable
+        if (this.socket && !this.socket.destroyed && this.socket.writable) {
+            try {
+                const hangup = Buffer.from([AUDIOSOCKET_HANGUP, 0, 0]);
+                this.socket.write(hangup);
+                this.socket.end();
+            } catch (err) {
+                // Socket already closed, ignore
+            }
         }
     }
 
