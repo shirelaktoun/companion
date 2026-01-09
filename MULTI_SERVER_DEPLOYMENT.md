@@ -1,18 +1,18 @@
 # AI Companion - Multi-Server Deployment Guide
 
 This guide covers deploying the AI Companion across two servers:
-- **Application Server**: 87.106.74.102 (runs Node.js application)
+- **Application Server**: 87.106.143.109 (runs Node.js application)
 - **Asterisk Server**: 87.106.72.7 (runs Asterisk PBX)
 
 ## Architecture
 
 ```
-Phone → Asterisk (87.106.72.7:5060) → AudioSocket → App Server (87.106.74.102:4000) → OpenAI API
+Phone → Asterisk (87.106.72.7:5060) → AudioSocket → App Server (87.106.143.109:4000) → OpenAI API
 ```
 
 ## Prerequisites
 
-### On Application Server (87.106.74.102)
+### On Application Server (87.106.143.109)
 
 - Node.js 18+ installed
 - Git installed
@@ -24,17 +24,17 @@ Phone → Asterisk (87.106.72.7:5060) → AudioSocket → App Server (87.106.74.
 
 - Asterisk installed and running
 - `app_audiosocket` module available
-- Network access to 87.106.74.102:4000
+- Network access to 87.106.143.109:4000
 
 ---
 
-## Part 1: Application Server Setup (87.106.74.102)
+## Part 1: Application Server Setup (87.106.143.109)
 
 ### Step 1: Clone Repository
 
 ```bash
 # SSH to application server
-ssh root@87.106.74.102
+ssh root@87.106.143.109
 
 # Clone repository
 cd /opt
@@ -84,7 +84,7 @@ cd /opt/companion
 openssl req -x509 -newkey rsa:2048 \
   -keyout key.pem -out cert.pem \
   -days 365 -nodes \
-  -subj "/CN=87.106.74.102"
+  -subj "/CN=87.106.143.109"
 ```
 
 ### Step 5: Configure Firewall
@@ -213,10 +213,10 @@ ssh root@87.106.72.7
 cat > /etc/asterisk/extensions_companion.conf << 'EOF'
 [from-internal-custom]
 ; Extension 7000 - AI Companion (Remote Server)
-exten => 7000,1,NoOp(Incoming call to AI Companion on 87.106.74.102)
+exten => 7000,1,NoOp(Incoming call to AI Companion on 87.106.143.109)
  same => n,Answer()
  same => n,Wait(0.5)
- same => n,AudioSocket(40325ec4-1f0b-4d38-8c5d-23f9a71e7c75,87.106.74.102:4000)
+ same => n,AudioSocket(40325ec4-1f0b-4d38-8c5d-23f9a71e7c75,87.106.143.109:4000)
  same => n,Hangup()
 EOF
 ```
@@ -252,10 +252,10 @@ asterisk -rx "dialplan show 7000"
 
 You should see:
 ```
-'7000' =>           1. NoOp(Incoming call to AI Companion on 87.106.74.102)
+'7000' =>           1. NoOp(Incoming call to AI Companion on 87.106.143.109)
                     2. Answer()
                     3. Wait(0.5)
-                    4. AudioSocket(40325ec4-...,87.106.74.102:4000)
+                    4. AudioSocket(40325ec4-...,87.106.143.109:4000)
                     5. Hangup()
 ```
 
@@ -265,15 +265,15 @@ You should see:
 
 ```bash
 # Test port 4000 is reachable
-telnet 87.106.74.102 4000
+telnet 87.106.143.109 4000
 
 # Should connect successfully
 # Press Ctrl+] then type 'quit' to exit
 
 # Alternative test with nc
-nc -zv 87.106.74.102 4000
+nc -zv 87.106.143.109 4000
 
-# Should show: Connection to 87.106.74.102 4000 port [tcp/*] succeeded!
+# Should show: Connection to 87.106.143.109 4000 port [tcp/*] succeeded!
 ```
 
 ---
@@ -284,8 +284,8 @@ nc -zv 87.106.74.102 4000
 
 **From Asterisk server:**
 ```bash
-ping -c 3 87.106.74.102
-telnet 87.106.74.102 4000
+ping -c 3 87.106.143.109
+telnet 87.106.143.109 4000
 ```
 
 **From Application server:**
@@ -295,7 +295,7 @@ ping -c 3 87.106.72.7
 
 ### Test 2: Check Services
 
-**On Application Server (87.106.74.102):**
+**On Application Server (87.106.143.109):**
 ```bash
 # Check telephony server
 systemctl status companion-telephony
@@ -366,7 +366,7 @@ AudioSocket/40325ec4-... answered
 
 **Symptoms:**
 ```
-Failed to create AudioSocket to 87.106.74.102:4000
+Failed to create AudioSocket to 87.106.143.109:4000
 Connection refused
 ```
 
@@ -374,7 +374,7 @@ Connection refused
 
 1. **Check firewall on application server:**
    ```bash
-   # On 87.106.74.102
+   # On 87.106.143.109
    iptables -L -n | grep 4000
 
    # Should show rule allowing 87.106.72.7
@@ -469,7 +469,7 @@ asterisk -rx "module load app_audiosocket.so"
 
 ## Monitoring
 
-### Application Server (87.106.74.102)
+### Application Server (87.106.143.109)
 
 ```bash
 # View telephony logs
@@ -513,7 +513,7 @@ OpenAI Realtime API pricing (approximate):
 
 **Recommendations:**
 1. Set up billing alerts in OpenAI dashboard
-2. Monitor usage: `curl -k https://87.106.74.102:3000/sessions`
+2. Monitor usage: `curl -k https://87.106.143.109:3000/sessions`
 3. Implement call duration limits in dialplan
 4. Consider implementing usage quotas per user
 
@@ -521,7 +521,7 @@ OpenAI Realtime API pricing (approximate):
 
 ## Quick Reference
 
-### Application Server (87.106.74.102)
+### Application Server (87.106.143.109)
 
 ```bash
 # Restart services
@@ -547,7 +547,7 @@ asterisk -rx "dialplan reload"
 asterisk -rx "dialplan show 7000"
 
 # Test connectivity
-telnet 87.106.74.102 4000
+telnet 87.106.143.109 4000
 
 # View active calls
 asterisk -rx "core show channels"
@@ -591,7 +591,7 @@ asterisk -rx "module show like audiosocket"
 asterisk -rx "dialplan show 7000"
 
 # Network test
-telnet 87.106.74.102 4000
+telnet 87.106.143.109 4000
 ```
 
 ---

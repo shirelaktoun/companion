@@ -30,7 +30,7 @@ const AMI_PORT = parseInt(process.env.ASTERISK_AMI_PORT) || 5038;
 const AMI_USERNAME = process.env.ASTERISK_AMI_USERNAME;
 const AMI_SECRET = process.env.ASTERISK_AMI_SECRET;
 const AUDIOSOCKET_PORT = process.env.AUDIOSOCKET_PORT || 4000;
-const APP_SERVER_IP = '87.106.74.102'; // Application server IP for AudioSocket callback
+const APP_SERVER_IP = '87.106.143.109'; // Application server IP for AudioSocket callback
 
 // Store for call parameters (keyed by call UUID)
 const callParameters = new Map();
