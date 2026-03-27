@@ -1,0 +1,28 @@
+{
+  "name": "companion",
+  "version": "1.0.0",
+  "description": "AI companion with low-latency real-time communication",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "telephony": "node audiosocket-server.js",
+    "all": "concurrently \"npm start\" \"npm run telephony\""
+  },
+  "keywords": [
+    "ai",
+    "realtime",
+    "openai",
+    "voice",
+    "companion"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "asterisk-manager": "^0.2.0",
+    "dotenv": "^16.3.1",
+    "uuid": "^13.0.0",
+    "ws": "^8.14.2"
+  }
+}
